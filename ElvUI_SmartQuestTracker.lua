@@ -7,34 +7,17 @@
 	Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
 ]]
 
---[[
-	This is a framework showing how to create a plugin for ElvUI.
-	It creates some default options and inserts a GUI table to the ElvUI Config.
-	If you have questions then ask in the Tukui lua section: http://www.tukui.org/forums/forum.php?id=27
-]]
+MyAddon = LibStub("AceAddon-3.0"):NewAddon("SmartQuestTracker", "AceConsole-3.0", "AceEvent-3.0")
 
-local E, L, V, P, G = unpack(ElvUI); --Import: Engine, Locales, PrivateDB, ProfileDB, GlobalDB
-local MyPlugin = E:NewModule('ElvUI_SmartQuestTracker', 'AceHook-3.0', 'AceEvent-3.0', 'AceTimer-3.0'); --Create a plugin within ElvUI and adopt AceHook-3.0, AceEvent-3.0 and AceTimer-3.0. We can make use of these later.
-local EP = LibStub("LibElvUIPlugin-1.0") --We can use this to automatically insert our GUI tables when ElvUI_Config is loaded.
-local addonName, addonTable = ... --See http://www.wowinterface.com/forums/showthread.php?t=51502&p=304704&postcount=2
-
---Default options
-P["ElvUI_SmartQuestTracker"] = {
-	["RemoveComplete"] = false,
-	["AutoRemove"] = true,
-	["AutoSort"] = true,
-}
-
-local frame = CreateFrame("Frame")
+local autoTracked = {}
 local autoRemove
 local autoSort
 local removeComplete
-local autoTracked = {}
 
 local function getQuestId(index)
- 	local _, _, _, _, _, _, _, questID, _, _, _, _, _, _ = GetQuestLogTitle(index)
+ 	local _, _, _, _, _, _, _, id, _, _, _, _, _, _ = GetQuestLogTitle(index)
 
-	return questID
+	return id
 end
 
 local function trackQuest(index, markAutoTracked)
@@ -71,6 +54,7 @@ end
 
 local function debugPrintQuestsHelper(onlyWatched)
 	local areaid = GetCurrentMapAreaID();
+	print("#########################")
 	print("Current MapID: " .. areaid)
 	local numEntries, numQuests = GetNumQuestLogEntries()
 	print(numQuests .. " Quests in " .. numEntries .. " Entries.")
@@ -85,6 +69,7 @@ local function debugPrintQuestsHelper(onlyWatched)
 			local distance, reachable = GetDistanceSqToQuest(questIndex)
 			if (not onlyWatched) or (onlyWatched and IsQuestWatched(questIndex)) then
 				print("#" .. questID .. " - |cffFF6A00" .. title .. "|r")
+				print("Completed: ".. tostring(isComplete))
 				print("MapID: " .. questMapId .. " - IsOnMap: " .. tostring(isOnMap) .. " - hasLocalPOI: " .. tostring(hasLocalPOI))
 				print("Distance: " .. distance)
 				if autoTracked[questID] then
@@ -101,7 +86,7 @@ local function run_update()
 	local areaid = GetCurrentMapAreaID();
 	local numEntries, _ = GetNumQuestLogEntries()
 	for questIndex = 1, numEntries do
-		local _, _, _, isHeader, _, isComplete, _, questID, _, _, isOnMap, hasLocalPOI, _, _ = GetQuestLogTitle(questIndex)
+		local title, _, _, isHeader, _, isComplete, _, questID, _, _, isOnMap, hasLocalPOI, _, _ = GetQuestLogTitle(questIndex)
 		if ( not isHeader) then
 			local questMapId, _ = GetQuestWorldMapAreaID(questID)
 			if (isComplete and removeComplete) then
@@ -118,41 +103,46 @@ local function run_update()
 	end
 end
 
-local function EventHandler(self, event, questIndex)
-	if event == "QUEST_WATCH_UPDATE" then
-		local _, _, _, _, _, isComplete, _, _, _, _, _, _, _, _ = GetQuestLogTitle(questIndex)
-		if (removeComplete and isComplete) then
-			untrackQuest(questIndex)
-		else
-			trackQuest(questIndex, true)
-		end
-	elseif event == "QUEST_ACCEPTED" then
-		trackQuest(questIndex, true)
-	else
-		run_update()
-	end
-end
-
---Function we can call when a setting changes.
-function MyPlugin:Update()
-	autoRemove = E.db.ElvUI_SmartQuestTracker.AutoRemove
-	autoSort =  E.db.ElvUI_SmartQuestTracker.AutoSort
-	removeComplete = E.db.ElvUI_SmartQuestTracker.RemoveComplete
+function MyAddon:Update()
+	autoRemove = self.db.profile.AutoRemove
+	autoSort =  self.db.profile.AutoSort
+	removeComplete = self.db.profile.RemoveComplete
 
 	run_update()
 end
 
---This function inserts our GUI table into the ElvUI Config. You can read about AceConfig here: http://www.wowace.com/addons/ace3/pages/ace-config-3-0-options-tables/
-function MyPlugin:InsertOptions()
-	E.Options.args.ElvUI_SmartQuestTracker = {
+function MyAddon:QUEST_WATCH_UPDATE(event, questIndex)
+	local _, _, _, _, _, isComplete, _, _, _, _, _, _, _, _ = GetQuestLogTitle(questIndex)
+	if (removeComplete and isComplete) then
+		untrackQuest(questIndex)
+	else
+		trackQuest(questIndex, true)
+	end
+end
+
+function MyAddon:QUEST_ACCEPTED(event, questIndex)
+	trackQuest(questIndex, true)
+end
+
+function MyAddon:ZONE_CHANGED()
+	run_update()
+end
+
+function MyAddon:ZONE_CHANGED_NEW_AREA()
+	run_update()
+end
+
+function MyAddon:BuildOptions()
+	local options = {
 		order = 100,
 		type = "group",
 		name = "|cffFF6A00Smart Quest Tracker|r",
+		handler = MyAddon,
 		args = {
 			clear = {
 				order = 1,
 				type = "group",
-				name = L['Untrack quests when changing area'],
+				name = 'Untrack quests when changing area',
 				guiInline = true,
 				args = {
 					removecomplete = {
@@ -160,11 +150,11 @@ function MyPlugin:InsertOptions()
 						type = "toggle",
 						name = "Completed quests",
 						get = function(info)
-							return E.db.ElvUI_SmartQuestTracker.RemoveComplete
+							return self.db.profile.RemoveComplete
 						end,
 						set = function(info, value)
-							E.db.ElvUI_SmartQuestTracker.RemoveComplete = value
-							MyPlugin:Update() --We changed a setting, call our Update function
+							self.db.profile.RemoveComplete = value
+							MyAddon:Update()
 						end,
 					},
 					autoremove = {
@@ -172,11 +162,11 @@ function MyPlugin:InsertOptions()
 						type = "toggle",
 						name = "Quests from other areas",
 						get = function(info)
-							return E.db.ElvUI_SmartQuestTracker.AutoRemove
+							return self.db.profile.AutoRemove
 						end,
 						set = function(info, value)
-							E.db.ElvUI_SmartQuestTracker.AutoRemove = value
-							MyPlugin:Update() --We changed a setting, call our Update function
+							self.db.profile.AutoRemove = value
+							MyAddon:Update()
 						end,
 					},
 				},
@@ -184,7 +174,7 @@ function MyPlugin:InsertOptions()
 			sort = {
 				order = 2,
 				type = "group",
-				name = L['Sort of quests in tracker'],
+				name = 'Sort of quests in tracker',
 				guiInline = true,
 				args = {
 					autosort = {
@@ -192,11 +182,11 @@ function MyPlugin:InsertOptions()
 						type = "toggle",
 						name = "Automatically sort quests",
 						get = function(info)
-							return E.db.ElvUI_SmartQuestTracker.AutoSort
+							return self.db.profile.AutoSort
 						end,
 						set = function(info, value)
-							E.db.ElvUI_SmartQuestTracker.AutoSort = value
-							MyPlugin:Update() --We changed a setting, call our Update function
+							self.db.profile.AutoSort = value
+							MyAddon:Update()
 						end,
 					},
 				},
@@ -207,13 +197,13 @@ function MyPlugin:InsertOptions()
 				name = "Debug",
 				guiInline = true,
 				args = {
-					print = {
+					printAll = {
 						type = 'execute',
 						order = 1,
 						name = 'Print all quests to chat',
 						func = function() debugPrintQuestsHelper(false) end,
 					},
-					printWatched = {
+					printTracked = {
 						type = 'execute',
 						order = 1,
 						name = 'Print tracked quests to chat',
@@ -225,28 +215,42 @@ function MyPlugin:InsertOptions()
 						name = 'Untrack all quests',
 						func = function() untrackAllQuests() end,
 					},
+					update = {
+						type = 'execute',
+						order = 1,
+						name = 'Force update of tracked quests',
+						func = function() run_update() end,
+					},
 				},
 			},
 		},
 	}
+
+	options.args.profile = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
+
+	return options
 end
 
-function MyPlugin:Initialize()
-	--Register plugin so options are properly inserted when config is loaded
-	EP:RegisterPlugin(addonName, MyPlugin.InsertOptions)
+function MyAddon:OnInitialize()
+	local defaults = {
+	  profile = {
+		AutoSort = true,
+		AutoRemove = true,
+		RemoveComplete = false
+	  }
+	}
 
+	self.db = LibStub("AceDB-3.0"):New("SmartQuestTrackerDB", defaults)
+	LibStub("AceConfig-3.0"):RegisterOptionsTable("SmartQuestTracker", MyAddon:BuildOptions(), {"sqt", "SmartQuestTracker"})
+
+	self.profilesFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("SmartQuestTracker");
 
 	--Register event triggers
-	frame:RegisterEvent("ZONE_CHANGED")
-	frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-	frame:RegisterEvent("QUEST_WATCH_UPDATE")
-	frame:RegisterEvent("QUEST_ACCEPTED")
-
-	frame:SetScript("OnEvent", EventHandler)
+	MyAddon:RegisterEvent("ZONE_CHANGED")
+	MyAddon:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+	MyAddon:RegisterEvent("QUEST_WATCH_UPDATE")
+	MyAddon:RegisterEvent("QUEST_ACCEPTED")
 
 	untrackAllQuests()
-
-	MyPlugin:Update()
+	MyAddon:Update()
 end
-
-E:RegisterModule(MyPlugin:GetName()) --Register the module with ElvUI. ElvUI will now call MyPlugin:Initialize() when ElvUI is ready to load our plugin.
