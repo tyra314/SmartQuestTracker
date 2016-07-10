@@ -166,7 +166,7 @@ function MyAddon:Update()
 	removeComplete = self.db.profile.RemoveComplete
 	showDailies = self.db.profile.ShowDailies
 
-	run_update()
+	SmartQuestTracker_wait(0.2, run_update)
 end
 
 function MyAddon:QUEST_WATCH_UPDATE(event, questIndex)
@@ -322,6 +322,6 @@ function MyAddon:OnInitialize()
 	MyAddon:RegisterEvent("QUEST_WATCH_UPDATE")
 	MyAddon:RegisterEvent("QUEST_ACCEPTED")
 
-	untrackAllQuests()
+    SmartQuestTracker_wait(0.1, untrackAllQuests)
 	MyAddon:Update()
 end

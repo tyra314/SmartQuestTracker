@@ -1,6 +1,6 @@
-## Interface: 60200
+## Interface: 70000
 ## Author: tyra
-## Version: 1.3
+## Version: 2.0
 ## Title: Smart Quest Tracker
 
 embeds.xml
