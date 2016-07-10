@@ -9,6 +9,7 @@ task :build => [:clean, :package]
 
 Rake::PackageTask.new("SmartQuestTracker", :noversion) do |p|
     p.need_zip = true
+    p.package_files.include("*.toc")
     p.package_files.include("Readme.md")
     p.package_files.include("**/*.xml")
     p.package_files.include("**/*.lua")
