@@ -1,8 +1,7 @@
 ## Interface: 60200
 ## Author: tyra
 ## Version: 1.0
-## Title: |cffFF6A00Smart Quest Tracker|r
-## RequiredDeps: Ace3
+## Title: Smart Quest Tracker
 
 embeds.xml
 SmartQuestTracker.lua
