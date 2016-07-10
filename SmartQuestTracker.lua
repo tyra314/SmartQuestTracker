@@ -9,6 +9,39 @@
 
 MyAddon = LibStub("AceAddon-3.0"):NewAddon("SmartQuestTracker", "AceConsole-3.0", "AceEvent-3.0")
 
+-- Wait function taken from http://wowwiki.wikia.com/wiki/USERAPI_wait
+local waitTable = {};
+local waitFrame = nil;
+
+function SmartQuestTracker_wait(delay, func, ...)
+  if(type(delay)~="number" or type(func)~="function") then
+    return false;
+  end
+  if(waitFrame == nil) then
+    waitFrame = CreateFrame("Frame","WaitFrame", UIParent);
+    waitFrame:SetScript("onUpdate",function (self,elapse)
+      local count = #waitTable;
+      local i = 1;
+      while(i<=count) do
+        local waitRecord = tremove(waitTable,i);
+        local d = tremove(waitRecord,1);
+        local f = tremove(waitRecord,1);
+        local p = tremove(waitRecord,1);
+        if(d>elapse) then
+          tinsert(waitTable,i,{d-elapse,f,p});
+          i = i + 1;
+        else
+          count = count - 1;
+          f(unpack(p));
+        end
+      end
+    end);
+  end
+  tinsert(waitTable,{delay,func,{...}});
+  return true;
+end
+-- end wait function
+
 local autoTracked = {}
 local autoRemove
 local autoSort
@@ -127,8 +160,6 @@ local function debugPrintQuestsHelper(onlyWatched)
 	end
 end
 
-
-
 function MyAddon:Update()
 	autoRemove = self.db.profile.AutoRemove
 	autoSort =  self.db.profile.AutoSort
@@ -139,8 +170,8 @@ function MyAddon:Update()
 end
 
 function MyAddon:QUEST_WATCH_UPDATE(event, questIndex)
-	local _, _, _, _, _, isComplete, _, _, _, _, _, _, _, _ = GetQuestLogTitle(questIndex)
-	if (removeComplete and isComplete) then
+	local questID, title, isLocal, distance, isRepeatable, isDaily, isWeekly, isCompleted, isTracked, isAutoTracked = getQuestInfo(questIndex)
+	if (removeComplete and isCompleted) then
 		untrackQuest(questIndex)
 	else
 		trackQuest(questIndex, true)
@@ -152,11 +183,11 @@ function MyAddon:QUEST_ACCEPTED(event, questIndex)
 end
 
 function MyAddon:ZONE_CHANGED()
-	run_update()
+	SmartQuestTracker_wait(0.1, run_update)
 end
 
 function MyAddon:ZONE_CHANGED_NEW_AREA()
-	run_update()
+	SmartQuestTracker_wait(0.1, run_update)
 end
 
 function MyAddon:BuildOptions()
@@ -213,7 +244,7 @@ function MyAddon:BuildOptions()
 			sort = {
 				order = 2,
 				type = "group",
-				name = 'Sort of quests in tracker',
+				name = 'Sorting of quests in tracker',
 				guiInline = true,
 				args = {
 					autosort = {
@@ -238,13 +269,13 @@ function MyAddon:BuildOptions()
 				args = {
 					printAll = {
 						type = 'execute',
-						order = 1,
+						order = 2,
 						name = 'Print all quests to chat',
 						func = function() debugPrintQuestsHelper(false) end,
 					},
 					printTracked = {
 						type = 'execute',
-						order = 1,
+						order = 3,
 						name = 'Print tracked quests to chat',
 						func = function() debugPrintQuestsHelper(true) end,
 					},
@@ -256,7 +287,7 @@ function MyAddon:BuildOptions()
 					},
 					update = {
 						type = 'execute',
-						order = 1,
+						order = 4,
 						name = 'Force update of tracked quests',
 						func = function() run_update() end,
 					},
