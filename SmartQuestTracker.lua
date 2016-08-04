@@ -67,23 +67,33 @@ local function getQuestInfo(index)
 	local isCompleted = not isComplete == nil
 	local isAutoTracked = autoTracked[questID] == true
 
-	return questID, title, isLocal, distance, isRepeatable, isDaily, isWeekly, isCompleted, isTracked, isAutoTracked
+
+    quest = {};
+
+    quest["id"] = questID
+    quest["title"] = title
+    quest["isLocal"] = isLocal
+    quest["distance"] = distance
+    quest["isRepeatable"] = isRepeatable
+    quest["isDaily"] = isDaily
+    quest["isWeekly"] = isWeekly
+    quest["isCompleted"] = isCompleted
+    quest["isTracked"] = isTracked
+    quest["isAutoTracked"] = isAutoTracked
+
+	return quest
 end
 
-local function trackQuest(index, markAutoTracked)
-	local questID, title, isLocal, distance, isRepeatable, isDaily, isWeekly, isCompleted, isTracked, isAutoTracked = getQuestInfo(index)
-
-	if (not isTracked) or markAutoTracked then
-		autoTracked[questID] = true
+local function trackQuest(index, quest, markAutoTracked)
+	if (not quest["isTracked"]) or markAutoTracked then
+		autoTracked[quest["id"]] = true
 		AddQuestWatch(index)
 	end
 end
 
-local function untrackQuest(index)
-	local questID, title, isLocal, distance, isRepeatable, isDaily, isWeekly, isCompleted, isTracked, isAutoTracked = getQuestInfo(index)
-
+local function untrackQuest(index, quest)
 	if isAutoTracked and autoRemove then
-		autoTracked[questID] = nil
+        autoTracked[quest["id"]] = nil
 		RemoveQuestWatch(index)
 	end
 end
@@ -106,19 +116,19 @@ local function run_update()
 	local inInstance, instanceType = IsInInstance()
 	local numEntries, _ = GetNumQuestLogEntries()
 	for questIndex = 1, numEntries do
-		local questID, title, isLocal, distance, isRepeatable, isDaily, isWeekly, isCompleted, isTracked, isAutoTracked = getQuestInfo(questIndex)
+		local quest = getQuestInfo(questIndex)
 
-		if not (questID == nil) then
-			if (isComplete and removeComplete) then
-				untrackQuest(questIndex)
-			elseif isLocal then
-				trackQuest(questIndex)
-			elseif showDailies and isDaily and not inInstance then
-				trackQuest(questIndex)
-			elseif showDailies and isWeekly then
-				trackQuest(questIndex)
+		if not (quest == nil) then
+			if (quest["isComplete"] and removeComplete) then
+				untrackQuest(questIndex, quest)
+			elseif quest["isLocal"] then
+				trackQuest(questIndex, quest)
+			elseif showDailies and quest["isDaily"] and not inInstance then
+				trackQuest(questIndex, quest)
+			elseif showDailies and quest["isWeekly"] then
+				trackQuest(questIndex, quest)
 			else
-				untrackQuest(questIndex)
+				untrackQuest(questIndex, quest)
 			end
 		end
 	end
@@ -144,17 +154,17 @@ local function debugPrintQuestsHelper(onlyWatched)
 	print("#########################")
 
 	for questIndex = 1, numEntries do
-		local questID, title, isLocal, distance, isRepeatable, isDaily, isWeekly, isCompleted, isTracked, isAutoTracked = getQuestInfo(questIndex)
-		if not (questID == nil) then
-			if (not onlyWatched) or (onlyWatched and isTracked) then
-				print("#" .. questID .. " - |cffFF6A00" .. title .. "|r")
-				print("Completed: ".. tostring(isCompleted))
-				print("IsLocal: " .. tostring(isLocal))
-				print("Distance: " .. distance)
-				print("AutoTracked: " .. tostring(isAutoTracked))
-				print("Is repeatable: " .. tostring(isRepeatable))
-				print("Is Daily: " .. tostring(isDaily))
-				print("Is Weekly: " .. tostring(isWeekly))
+		local quest = getQuestInfo(questIndex)
+		if not (quest == nil) then
+			if (not onlyWatched) or (onlyWatched and quest["isTracked"]) then
+				print("#" .. quest["id"] .. " - |cffFF6A00" .. quest["title"] .. "|r")
+				print("Completed: ".. tostring(quest["isCompleted"]))
+				print("IsLocal: " .. tostring(quest["isLocal"]))
+				print("Distance: " .. quest["distance"])
+				print("AutoTracked: " .. tostring(quest["isAutoTracked"]))
+				print("Is repeatable: " .. tostring(quest["isRepeatable"]))
+				print("Is Daily: " .. tostring(quest["isDaily"]))
+				print("Is Weekly: " .. tostring(quest["isWeekly"]))
 			end
 		end
 	end
@@ -166,20 +176,22 @@ function MyAddon:Update()
 	removeComplete = self.db.profile.RemoveComplete
 	showDailies = self.db.profile.ShowDailies
 
-	SmartQuestTracker_wait(0.2, run_update)
+    SmartQuestTracker_wait(0.1, untrackAllQuests)
+	SmartQuestTracker_wait(0.5, run_update)
 end
 
 function MyAddon:QUEST_WATCH_UPDATE(event, questIndex)
-	local questID, title, isLocal, distance, isRepeatable, isDaily, isWeekly, isCompleted, isTracked, isAutoTracked = getQuestInfo(questIndex)
-	if (removeComplete and isCompleted) then
-		untrackQuest(questIndex)
+	local quest = getQuestInfo(questIndex)
+	if (removeComplete and quest["isCompleted"]) then
+		untrackQuest(questIndex, quest)
 	else
-		trackQuest(questIndex, true)
+		trackQuest(questIndex, quest, true)
 	end
 end
 
 function MyAddon:QUEST_ACCEPTED(event, questIndex)
-	trackQuest(questIndex, true)
+    local quest = getQuestInfo(questIndex)
+    trackQuest(questIndex, quest, true)
 end
 
 function MyAddon:ZONE_CHANGED()
@@ -200,7 +212,7 @@ function MyAddon:BuildOptions()
 			clear = {
 				order = 1,
 				type = "group",
-				name = 'Untrack quests when changing area',
+				name = "Untrack quests when changing area",
 				guiInline = true,
 				args = {
 					removecomplete = {
@@ -244,7 +256,7 @@ function MyAddon:BuildOptions()
 			sort = {
 				order = 2,
 				type = "group",
-				name = 'Sorting of quests in tracker',
+				name = "Sorting of quests in tracker",
 				guiInline = true,
 				args = {
 					autosort = {
@@ -322,6 +334,5 @@ function MyAddon:OnInitialize()
 	MyAddon:RegisterEvent("QUEST_WATCH_UPDATE")
 	MyAddon:RegisterEvent("QUEST_ACCEPTED")
 
-    SmartQuestTracker_wait(0.1, untrackAllQuests)
 	MyAddon:Update()
 end
