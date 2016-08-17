@@ -92,7 +92,7 @@ local function trackQuest(index, quest, markAutoTracked)
 end
 
 local function untrackQuest(index, quest)
-	if isAutoTracked and autoRemove then
+	if quest["isAutoTracked"] and autoRemove then
         autoTracked[quest["id"]] = nil
 		RemoveQuestWatch(index)
 	end
