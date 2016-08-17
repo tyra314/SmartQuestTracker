@@ -89,12 +89,20 @@ local function trackQuest(index, quest, markAutoTracked)
 		autoTracked[quest["id"]] = true
 		AddQuestWatch(index)
 	end
+
+    if autoSort then
+		SortQuestWatches()
+	end
 end
 
 local function untrackQuest(index, quest)
 	if quest["isAutoTracked"] and autoRemove then
         autoTracked[quest["id"]] = nil
 		RemoveQuestWatch(index)
+	end
+
+    if autoSort then
+		SortQuestWatches()
 	end
 end
 
