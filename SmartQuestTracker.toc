@@ -2,6 +2,7 @@
 ## Author: tyra314
 ## Version: 2.0.9
 ## Title: Smart Quest Tracker
+## SavedVariables: SmartQuestTrackerDB
 
 embeds.xml
 SmartQuestTracker.lua
