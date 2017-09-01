@@ -1,3 +1,7 @@
+v2.0.11:
+-   Interface version bump to 7.3
+-   (Internal) Change build process of addon.
+
 v2.0.10:
 -   Fixes settings don't get saved between sessions
 

@@ -15,6 +15,10 @@ externals:
     libs/AceEvent-3.0: svn://https://repos.wowace.com/wow/ace3/trunk/AceEvent-3.0
     libs/AceGUI-3.0: svn://https://repos.wowace.com/wow/ace3/trunk/AceGUI-3.0
 
+ignore:
+    - .gitignore
+    - .gitattributes
+
 manual-changelog:
     filename: CHANGELOG.md
     markup-type: markdown
