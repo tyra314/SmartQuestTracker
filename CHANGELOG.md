@@ -1,3 +1,9 @@
+v2.0.12:
+
+-   Improved World quest handling
+-   (Internal) More shared code between ElvUI version
+-   (Internal) Adds debug messages
+
 v2.0.11:
 
 -   Interface version bump to 7.3
