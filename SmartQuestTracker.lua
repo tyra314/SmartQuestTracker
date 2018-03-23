@@ -7,7 +7,19 @@
 	Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
 ]]
 
-MyAddon = LibStub("AceAddon-3.0"):NewAddon("SmartQuestTracker", "AceConsole-3.0", "AceEvent-3.0")
+
+local function DebugLog(...)
+--@debug@
+printResult = "|cffFF6A00Smart Quest Tracker|r: "
+for i,v in ipairs({...}) do
+	printResult = printResult .. tostring(v) .. " "
+end
+print(printResult)
+DEFAULT_CHAT_FRAME:AddMessage(printResult)
+--@end-debug@
+end
+
+MyPlugin = LibStub("AceAddon-3.0"):NewAddon("SmartQuestTracker", "AceConsole-3.0", "AceEvent-3.0")
 
 local autoTracked = {}
 local autoRemove
@@ -63,13 +75,16 @@ local function getQuestInfo(index)
     quest["isCompleted"] = isCompleted
     quest["isTracked"] = isTracked
     quest["isAutoTracked"] = isAutoTracked
+	quest["isWorldQuest"] = isTask
 
 	return quest
 end
 
 local function trackQuest(index, quest, markAutoTracked)
 	if (not quest["isTracked"]) or markAutoTracked then
-		autoTracked[quest["id"]] = true
+		if not quest["isWorldQuest"] then
+			autoTracked[quest["id"]] = true
+		end
 		AddQuestWatch(index)
 	end
 
@@ -103,6 +118,8 @@ local function untrackAllQuests()
 end
 
 local function run_update()
+	DebugLog("Running full update")
+
 	local areaid = GetCurrentMapAreaID();
 	local inInstance, instanceType = IsInInstance()
 	local numEntries, _ = GetNumQuestLogEntries()
@@ -166,7 +183,7 @@ local function debugPrintQuestsHelper(onlyWatched)
 	end
 end
 
-function MyAddon:Update()
+function MyPlugin:Update()
 	autoRemove = self.db.profile.AutoRemove
 	autoSort =  self.db.profile.AutoSort
 	removeComplete = self.db.profile.RemoveComplete
@@ -178,25 +195,20 @@ end
 
 -- event handlers
 
-function MyAddon:QUEST_WATCH_UPDATE(event, questIndex)
+function MyPlugin:QUEST_WATCH_UPDATE(event, questIndex)
+	DebugLog("Update for quest:", questIndex)
+
     if updateQuestIndex ~= nil then
-		-- at least we tried
-		local quest = getQuestInfo(questIndex)
-		if quest ~= nil then
-			updateQuestIndex = nil
-			if (removeComplete and quest["isCompleted"]) then
-				untrackQuest(questIndex, quest)
-			else
-				trackQuest(questIndex, quest, true)
-			end
-		end
+		DebugLog("Already had a queued quest update:", updateQuestIndex)
 	end
 
 	updateQuestIndex = questIndex
 end
 
-function MyAddon:QUEST_LOG_UPDATE(event)
+function MyPlugin:QUEST_LOG_UPDATE(event)
 	if updateQuestIndex ~= nil then
+		DebugLog("Running update for quest:", updateQuestIndex)
+
 		local questIndex = updateQuestIndex
 		local quest = getQuestInfo(questIndex)
 		if quest ~= nil then
@@ -215,6 +227,7 @@ function MyAddon:QUEST_LOG_UPDATE(event)
 	end
 
 	if newQuestIndex ~= nil then
+		DebugLog("Running update for new quest:", newQuestIndex)
 		local questIndex = newQuestIndex
 		local quest = getQuestInfo(questIndex)
 		if quest ~= nil then
@@ -224,11 +237,17 @@ function MyAddon:QUEST_LOG_UPDATE(event)
 	end
 end
 
-function MyAddon:QUEST_ACCEPTED(event, questIndex)
+function MyPlugin:QUEST_ACCEPTED(event, questIndex)
     newQuestIndex = questIndex
+	DebugLog("Accepted new quest:", questIndex)
 end
 
-function MyAddon:ZONE_CHANGED()
+function MyPlugin:QUEST_REMOVED(event, questIndex)
+	DebugLog("REMOVED:", questIndex)
+	autoTracked[questIndex] = nil
+end
+
+function MyPlugin:ZONE_CHANGED()
     if not WorldMapFrame:IsVisible() then
 		doUpdate = true
 	else
@@ -236,7 +255,7 @@ function MyAddon:ZONE_CHANGED()
 	end
 end
 
-function MyAddon:ZONE_CHANGED_NEW_AREA()
+function MyPlugin:ZONE_CHANGED_NEW_AREA()
     if not WorldMapFrame:IsVisible() then
 		doUpdate = true
 	else
@@ -244,19 +263,19 @@ function MyAddon:ZONE_CHANGED_NEW_AREA()
 	end
 end
 
-function MyAddon:WORLD_MAP_UPDATE()
+function MyPlugin:WORLD_MAP_UPDATE()
 	if skippedUpdate and not WorldMapFrame:IsVisible() then
 		skippedUpdate = false
 		run_update()
 	end
 end
 
-function MyAddon:BuildOptions()
+function MyPlugin:BuildOptions()
 	local options = {
 		order = 100,
 		type = "group",
 		name = "|cffFF6A00Smart Quest Tracker|r",
-		handler = MyAddon,
+		handler = MyPlugin,
 		args = {
 			clear = {
 				order = 1,
@@ -273,7 +292,7 @@ function MyAddon:BuildOptions()
 						end,
 						set = function(info, value)
 							self.db.profile.RemoveComplete = value
-							MyAddon:Update()
+							MyPlugin:Update() --We changed a setting, call our Update function
 						end,
 					},
 					autoremove = {
@@ -285,7 +304,7 @@ function MyAddon:BuildOptions()
 						end,
 						set = function(info, value)
 							self.db.profile.AutoRemove = value
-							MyAddon:Update()
+							MyPlugin:Update() --We changed a setting, call our Update function
 						end,
 					},
 					showDailies = {
@@ -297,7 +316,7 @@ function MyAddon:BuildOptions()
 						end,
 						set = function(info, value)
 							self.db.profile.ShowDailies = value
-							MyAddon:Update()
+							MyPlugin:Update()
 						end,
 					},
 				},
@@ -317,7 +336,7 @@ function MyAddon:BuildOptions()
 						end,
 						set = function(info, value)
 							self.db.profile.AutoSort = value
-							MyAddon:Update()
+							MyPlugin:Update()
 						end,
 					},
 				},
@@ -362,7 +381,7 @@ function MyAddon:BuildOptions()
 	return options
 end
 
-function MyAddon:OnInitialize()
+function MyPlugin:OnInitialize()
 	local defaults = {
 	  profile = {
 		AutoSort = true,
@@ -373,17 +392,18 @@ function MyAddon:OnInitialize()
 	}
 
 	self.db = LibStub("AceDB-3.0"):New("SmartQuestTrackerDB", defaults)
-	LibStub("AceConfig-3.0"):RegisterOptionsTable("SmartQuestTracker", MyAddon:BuildOptions(), {"sqt", "SmartQuestTracker"})
+	LibStub("AceConfig-3.0"):RegisterOptionsTable("SmartQuestTracker", MyPlugin:BuildOptions(), {"sqt", "SmartQuestTracker"})
 
 	self.profilesFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("SmartQuestTracker");
 
 	--Register event triggers
-    MyAddon:RegisterEvent("ZONE_CHANGED")
-    MyAddon:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    MyAddon:RegisterEvent("QUEST_WATCH_UPDATE")
-    MyAddon:RegisterEvent("QUEST_LOG_UPDATE")
-    MyAddon:RegisterEvent("QUEST_ACCEPTED")
-    MyAddon:RegisterEvent("WORLD_MAP_UPDATE")
+    MyPlugin:RegisterEvent("ZONE_CHANGED")
+    MyPlugin:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    MyPlugin:RegisterEvent("QUEST_WATCH_UPDATE")
+    MyPlugin:RegisterEvent("QUEST_LOG_UPDATE")
+    MyPlugin:RegisterEvent("QUEST_ACCEPTED")
+	MyPlugin:RegisterEvent("QUEST_REMOVED")
+    MyPlugin:RegisterEvent("WORLD_MAP_UPDATE")
 
-	MyAddon:Update()
+	MyPlugin:Update()
 end
