@@ -1,6 +1,6 @@
 ## Interface: 70300
 ## Author: tyra314
-## Version: 2.0.12
+## Version: @project-version@
 ## Title: Smart Quest Tracker
 ## SavedVariables: SmartQuestTrackerDB
 

@@ -125,9 +125,8 @@ local function run_update()
 	local numEntries, _ = GetNumQuestLogEntries()
 	for questIndex = 1, numEntries do
 		local quest = getQuestInfo(questIndex)
-
 		if not (quest == nil) then
-			if quest["isComplete"] and removeComplete then
+			if quest["isCompleted"] and removeComplete then
 				untrackQuest(questIndex, quest)
 			elseif quest["isLocal"] then
 				trackQuest(questIndex, quest)
