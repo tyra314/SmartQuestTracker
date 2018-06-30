@@ -1,3 +1,7 @@
+v3.0.0:
+
+-   Update to BfA beta
+
 v2.0.13:
 
 -   Fixes untracking of completed quests
