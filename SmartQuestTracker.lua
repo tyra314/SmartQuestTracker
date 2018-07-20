@@ -14,7 +14,6 @@ printResult = "|cffFF6A00Smart Quest Tracker|r: "
 for i,v in ipairs({...}) do
 	printResult = printResult .. tostring(v) .. " "
 end
-print(printResult)
 DEFAULT_CHAT_FRAME:AddMessage(printResult)
 --@end-debug@
 end
