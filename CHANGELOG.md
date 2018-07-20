@@ -1,3 +1,12 @@
+v3.1.0:
+
+- Update to BfA prepatch
+- Ported changes of 2.1.0
+
+v3.0.0:
+
+-   Update to BfA beta
+
 v2.1.0:
 
 -   Performance improvemtents
