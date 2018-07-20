@@ -39,7 +39,9 @@ local function getQuestInfo(index)
 		return nil
 	end
 
-	local questMapId, _ = GetQuestWorldMapAreaID(questID)
+	local questMapId = GetQuestUiMapID(questID)
+	local distance, reachable = GetDistanceSqToQuest(index)
+	local areaid = C_Map.GetBestMapForUnit("player");
 
     local isDaily = frequency == LE_QUEST_FREQUENCY_DAILY
 	local isWeekly =  frequency == LE_QUEST_FREQUENCY_WEEKLY
@@ -47,7 +49,10 @@ local function getQuestInfo(index)
 	local isCompleted = isComplete ~= nil
 
 	local tagId = GetQuestTagInfo(questID)
-	local isInstance = tagId == QUEST_TAG_DUNGEON or tagId == QUEST_TAG_HEROIC or tagId == QUEST_TAG_RAID or tagId == QUEST_TAG_RAID10 or tagId == QUEST_TAG_RAID25
+	local isInstance = false
+	if tagId then
+	    isInstance = tagId == QUEST_TAG_DUNGEON or tagId == QUEST_TAG_HEROIC or tagId == QUEST_TAG_RAID or tagId == QUEST_TAG_RAID10 or tagId == QUEST_TAG_RAID25
+	end
 
 	return questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isTask
 end
@@ -66,9 +71,8 @@ end
 local function untrackQuest(index, questID)
 	if autoTracked[questID] == true then
 		RemoveQuestWatch(index)
+		autoTracked[questID] = nil
 	end
-
-	autoTracked[questID] = nil
 
     if autoSort then
 		SortQuestWatches()
@@ -96,7 +100,7 @@ local function run_update()
 end
 
 local function debugPrintQuestsHelper(onlyWatched)
-	local areaid = GetCurrentMapAreaID();
+	local areaid = C_Map.GetBestMapForUnit("player");
 	print("#########################")
 	print("Current MapID: " .. areaid)
 
@@ -117,7 +121,7 @@ local function debugPrintQuestsHelper(onlyWatched)
 			if (not onlyWatched) or (onlyWatched and autoTracked[questID] == true) then
 				print("#" .. questID .. " - |cffFF6A00" .. select(1, GetQuestLogTitle(questIndex)) .. "|r")
                 print("MapID: " .. tostring(questMapId) .. " IsOnMap: " .. tostring(isOnMap) .. " isInstance: " .. tostring(isInstance))
-				print("AutoTracked: " .. tostring(autoTracked[questID] == true))
+				print("AutoTracked: " .. tostring(autoTracked[questID] == true) .. "isLocal: " .. tostring(((questMapId == 0 and isOnMap) or (questMapId == areaid)) and not (isInstance and not inInstance and not isCompleted)))
 				print("Completed: ".. tostring(isCompleted) .. " Daily: " .. tostring(isDaily) .. " Weekly: " .. tostring(isWeekly) .. " WorldQuest: " .. tostring(isWorldQuest))
 			end
 		end
@@ -131,7 +135,7 @@ function MyPlugin:Update()
 	showDailies = self.db.profile.ShowDailies
 
     untrackAllQuests()
-	doUpdate = true
+	run_update()
 end
 
 function MyPlugin:RunUpdate()
@@ -139,37 +143,39 @@ function MyPlugin:RunUpdate()
 		self.update_running = true
 
 		-- Update play information cache, so we don't run it for every quest
-		self.areaID = GetCurrentMapAreaID();
+		self.areaID = C_Map.GetBestMapForUnit("player");
 		self.inInstance = select(1, IsInInstance())
 
 		--@debug@
 		DebugLog("MyPlugin:RunUpdate")
 		--@end-debug@
 		self:ScheduleTimer("PartialUpdate", 0.01, 1)
+	else
+		self.update_required = true
 	end
 end
 
 function MyPlugin:PartialUpdate(index)
 	local numEntries, _ = GetNumQuestLogEntries()
+
 	if index >= numEntries then
 		--@debug@
 		DebugLog("Finished partial updates")
 		--@end-debug@
 
-		if autoSort then
-			SortQuestWatches()
-		end
-
-		self.update_running = nil
-
-		local areaID = GetCurrentMapAreaID();
-		if areaID ~= self.areaID then
+		if self.update_required == true then
+			self.update_required = nil
 			self.inInstance = select(1, IsInInstance())
 			self.areaID = areaID
 			--@debug@
 			DebugLog("Reschedule partial update")
 			--@end-debug@
 			self:ScheduleTimer("PartialUpdate", 0.01, 1)
+		else
+			if autoSort then
+				SortQuestWatches()
+			end
+			self.update_running = nil
 		end
 
 		return
@@ -196,75 +202,52 @@ end
 -- event handlers
 
 function MyPlugin:QUEST_WATCH_UPDATE(event, questIndex)
-	--@debug@
 	DebugLog("Update for quest:", questIndex)
-    if updateQuestIndex ~= nil then
-		DebugLog("Already had a queued quest update:", updateQuestIndex)
-	end
-	--@end-debug@
 
-	updateQuestIndex = questIndex
+	local questID, _, _, isCompleted, _, _, _, isWorldQuest = getQuestInfo(questIndex)
+	if questID ~= nil then
+		updateQuestIndex = nil
+		if removeComplete and isCompleted then
+			untrackQuest(questIndex, questID)
+		elseif not isWorldQuest then
+			trackQuest(questIndex, questID, not isWorldQuest)
+		end
+	end
 end
 
 function MyPlugin:QUEST_LOG_UPDATE(event)
-	if updateQuestIndex ~= nil then
-		--@debug@
-		DebugLog("Running update for quest:", updateQuestIndex)
-		--@end-debug@
-
-		local questIndex = updateQuestIndex
-		local questID, _, _, isCompleted, _, _, _, isWorldQuest = getQuestInfo(questIndex)
-		if questID ~= nil then
-			updateQuestIndex = nil
-			if removeComplete and isCompleted then
-				untrackQuest(questIndex, questID)
-			elseif not isWorldQuest then
-				trackQuest(questIndex, questID, true)
-			end
-		end
-	end
-
-	if doUpdate then
-		doUpdate = false
-		run_update()
-	end
+ 	DebugLog("Running update for quests")
+	-- run_update()
 end
 
 function MyPlugin:QUEST_ACCEPTED(event, questIndex)
-    newQuestIndex = questIndex
-	--@debug@
 	DebugLog("Accepted new quest:", questIndex)
-	--@end-debug@
+
+	local questID, _, _, isCompleted, _, _, _, isWorldQuest = getQuestInfo(questIndex)
+	if questID ~= nil then
+		updateQuestIndex = nil
+		if removeComplete and isCompleted then
+			untrackQuest(questIndex, questID)
+		elseif not isWorldQuest then
+			trackQuest(questIndex, questID, not isWorldQuest)
+		end
+	end
 end
 
 function MyPlugin:QUEST_REMOVED(event, questIndex)
-	--@debug@
 	DebugLog("REMOVED:", questIndex)
-	--@end-debug@
 	autoTracked[questIndex] = nil
+	-- run_update()
 end
 
 function MyPlugin:ZONE_CHANGED()
-    if not WorldMapFrame:IsVisible() then
-		doUpdate = true
-	else
-		skippedUpdate = true
-	end
+	DebugLog("ZONE_CHANGED")
+	run_update()
 end
 
 function MyPlugin:ZONE_CHANGED_NEW_AREA()
-    if not WorldMapFrame:IsVisible() then
-		doUpdate = true
-	else
-		skippedUpdate = true
-	end
-end
-
-function MyPlugin:WORLD_MAP_UPDATE()
-	if skippedUpdate and not WorldMapFrame:IsVisible() then
-		skippedUpdate = false
-		run_update()
-	end
+	DebugLog("ZONE_CHANGED_NEW_AREA")
+	run_update()
 end
 
 function MyPlugin:BuildOptions()
@@ -400,7 +383,6 @@ function MyPlugin:OnInitialize()
     MyPlugin:RegisterEvent("QUEST_LOG_UPDATE")
     MyPlugin:RegisterEvent("QUEST_ACCEPTED")
 	MyPlugin:RegisterEvent("QUEST_REMOVED")
-    MyPlugin:RegisterEvent("WORLD_MAP_UPDATE")
 
 	MyPlugin:Update()
 end
