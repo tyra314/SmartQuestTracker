@@ -1,3 +1,6 @@
+v3.1.1:
+-   Update to Tides of Vengeance
+
 v3.1.0:
 
 - Update to BfA prepatch
