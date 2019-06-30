@@ -1,3 +1,6 @@
+v3.1.2:
+-   Update to Rise of Azshara
+
 v3.1.1:
 -   Update to Tides of Vengeance
 
