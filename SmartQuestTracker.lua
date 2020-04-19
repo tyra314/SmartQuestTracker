@@ -24,7 +24,14 @@ local autoTracked = {}
 local autoRemove
 local autoSort
 local removeComplete
+local keepComplete
+local removeLegendary
 local showDailies
+local removeWaypoints
+local zenMode
+local zenModeRunning
+local zenModeDistance
+local zenModeInterval
 
 -- control variables to pass arguments from on event handler to another
 local skippedUpdate = false
@@ -33,20 +40,35 @@ local newQuestIndex = nil
 local doUpdate = false
 
 local function getQuestInfo(index)
-	local _, _, _, isHeader, _, isComplete, frequency, questID, _, _, isOnMap, _, isTask, _ = GetQuestLogTitle(index)
+	--     title, level, suggestedGroup, isHeader, isCollapsed, isComplete, frequency, questID, startEvent, displayQuestID, isOnMap, hasLocalPOI, isTask, isBounty, isStory, isHidden, isScaling = GetQuestLogTitle(questLogIndex)
+	local  title,     _,              _, isHeader,           _, isCompleted, frequency, questID, startEvent, displayQuestID, isOnMap, hasLocalPOI, isTask, isBounty, isStory, isHidden, isScaling = GetQuestLogTitle(index)
+
+	local isLegendaryQuest = C_QuestLog.IsLegendaryQuest(questID)
+	local QuestZoneID = C_TaskQuest.GetQuestZoneID(questID)
+	local nextWaypoint = C_QuestLog.GetNextWaypoint(questID)
+
+	--@debug@
+	print("%%%%%%%%%" .. tostring(title) .. "%%%%%%%")
+	--@end-debug@
 
 	if isHeader then
 		return nil
 	end
 
-	local questMapId = GetQuestUiMapID(questID)
+	local questMapId = C_TaskQuest.GetQuestZoneID(questID)
+	if questMapId == nil then
+		questMapId = GetQuestUiMapID(questID)
+	end
+	if nextWaypoint ~= nil and nextWaypoint ~= questMapId and removeWaypoints then
+		questMapId = 0
+	end
 	local distance, reachable = GetDistanceSqToQuest(index)
-	local areaid = C_Map.GetBestMapForUnit("player");
+	local areaid = C_Map.GetBestMapForUnit("player")
 
     local isDaily = frequency == LE_QUEST_FREQUENCY_DAILY
 	local isWeekly =  frequency == LE_QUEST_FREQUENCY_WEEKLY
 
-	local isCompleted = isComplete ~= nil
+	local isCompleted = isCompleted ~= nil
 
 	local tagId = GetQuestTagInfo(questID)
 	local isInstance = false
@@ -54,7 +76,11 @@ local function getQuestInfo(index)
 	    isInstance = tagId == QUEST_TAG_DUNGEON or tagId == QUEST_TAG_HEROIC or tagId == QUEST_TAG_RAID or tagId == QUEST_TAG_RAID10 or tagId == QUEST_TAG_RAID25
 	end
 
-	return questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isTask
+	--@debug@
+	print("isHeader: ".. tostring(isHeader) .. " isCompleted: ".. tostring(isCompleted) .. " nextWaypoint: ".. tostring(nextWaypoint) .. " questMapId: ".. tostring(questMapId) .." QuestZoneID: ".. tostring(QuestZoneID) .. " areaid: ".. tostring(areaid) .. " hasLocalPOI: ".. tostring(hasLocalPOI) .. " questID: ".. tostring(questID) .. " isOnMap: ".. tostring(isOnMap) .. " isTask: ".. tostring(isTask) .. " isBounty: ".. tostring(isBounty) .. " isStory: ".. tostring(isStory) .. " isHidden: ".. tostring(isHidden) .. " isScaling: ".. tostring(isScaling) .. " isLegendaryQuest: " .. tostring(isLegendaryQuest) .. " reachable: " .. tostring(reachable) .. " distance: " .. tostring(distance))
+	--@end-debug@
+
+	return questID, questMapId, isOnMap or hasLocalPOI, isCompleted, isDaily, isWeekly, isInstance, isTask, isLegendaryQuest, distance
 end
 
 local function trackQuest(index, questID, markAutoTracked)
@@ -116,26 +142,73 @@ local function debugPrintQuestsHelper(onlyWatched)
 	print("#########################")
 
 	for questIndex = 1, numEntries do
-		local questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isWorldQuest = getQuestInfo(questIndex)
+		local questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isWorldQuest, isLegendaryQuest = getQuestInfo(questIndex)
 		if not (questID == nil) then
 			if (not onlyWatched) or (onlyWatched and autoTracked[questID] == true) then
 				print("#" .. questID .. " - |cffFF6A00" .. select(1, GetQuestLogTitle(questIndex)) .. "|r")
                 print("MapID: " .. tostring(questMapId) .. " IsOnMap: " .. tostring(isOnMap) .. " isInstance: " .. tostring(isInstance))
-				print("AutoTracked: " .. tostring(autoTracked[questID] == true) .. "isLocal: " .. tostring(((questMapId == 0 and isOnMap) or (questMapId == areaid)) and not (isInstance and not inInstance and not isCompleted)))
-				print("Completed: ".. tostring(isCompleted) .. " Daily: " .. tostring(isDaily) .. " Weekly: " .. tostring(isWeekly) .. " WorldQuest: " .. tostring(isWorldQuest))
+				print("AutoTracked: " .. tostring(autoTracked[questID] == true) .. " isLocal: " .. tostring(((questMapId == 0 and isOnMap) or (questMapId == areaid)) and not (isInstance and not inInstance and not isCompleted)))
+				print("Completed: ".. tostring(isCompleted) .. " Daily: " .. tostring(isDaily) .. " Weekly: " .. tostring(isWeekly) .. " WorldQuest: " .. tostring(isWorldQuest) .. " LegendaryQuest: " .. tostring(isLegendaryQuest))
 			end
 		end
 	end
+
+	print("C_QuestLog.GetQuestsOnMap(areaid): ")
+
+	local quests = C_QuestLog.GetQuestsOnMap(areaid)
+	for qid = 1, #quests do
+		local quest = quests[qid]
+		print("questID: " .. quest.questID)
+	end
+end
+function hasFocusQuest(mapID)
+	if not zenMode or mapID == nil then
+		return false
+	end
+	local quests = C_QuestLog.GetQuestsOnMap(mapID)
+	for qid = 1, #quests do
+		local quest = quests[qid]
+		local index = GetQuestLogIndexByID(quest.questID);
+		local distanceSq, _ = GetDistanceSqToQuest(index)
+
+		if distanceSq <= zenModeDistance then
+			return true
+		end
+	end
+
+	return false
 end
 
+--Function we can call when a setting changes.
 function MyPlugin:Update()
 	autoRemove = self.db.profile.AutoRemove
 	autoSort =  self.db.profile.AutoSort
-	removeComplete = self.db.profile.RemoveComplete
+	removeLegendary = self.db.profile.RemoveLegendary
+	removeWaypoints = self.db.profile.RemoveWaypoints
 	showDailies = self.db.profile.ShowDailies
+	handlingComplete = self.db.profile.HandlingComplete
+	zenMode = self.db.profile.ZenMode
+	zenModeDistance = self.db.profile.ZenModeDistance
+	zenModeInterval = self.db.profile.ZenModeInterval
 
-    untrackAllQuests()
+	if handlingComplete == "keep" then
+		keepComplete = true
+		removeComplete = false
+	elseif handlingComplete == "keep_local" then
+		keepComplete = false
+		removeComplete = false
+	elseif handlingComplete == "remove" then
+		keepComplete = false
+		removeComplete = true
+	end
+
+	untrackAllQuests()
+
 	run_update()
+
+	if not zenModeRunning then
+		self:ScheduleTimer("ZenMode", zenModeInterval)
+	end
 end
 
 function MyPlugin:RunUpdate()
@@ -143,8 +216,9 @@ function MyPlugin:RunUpdate()
 		self.update_running = true
 
 		-- Update play information cache, so we don't run it for every quest
-		self.areaID = C_Map.GetBestMapForUnit("player");
+		self.areaID = C_Map.GetBestMapForUnit("player")
 		self.inInstance = select(1, IsInInstance())
+		self.hasFocus = hasFocusQuest(self.areaID)
 
 		--@debug@
 		DebugLog("MyPlugin:RunUpdate")
@@ -152,6 +226,22 @@ function MyPlugin:RunUpdate()
 		self:ScheduleTimer("PartialUpdate", 0.01, 1)
 	else
 		self.update_required = true
+	end
+end
+
+function MyPlugin:ZenMode()
+	if zenMode then
+		zenModeRunning = true
+		if not WorldMapFrame:IsVisible() then
+			--@debug@
+			DebugLog("Running zen mode update")
+			--@end-debug@
+
+			run_update()
+		end
+		self:ScheduleTimer("ZenMode", zenModeInterval)
+	else
+		zenModeRunning = false
 	end
 end
 
@@ -165,8 +255,10 @@ function MyPlugin:PartialUpdate(index)
 
 		if self.update_required == true then
 			self.update_required = nil
+			self.areaID = C_Map.GetBestMapForUnit("player")
 			self.inInstance = select(1, IsInInstance())
-			self.areaID = areaID
+			self.hasFocus = hasFocusQuest(self.areaID)
+
 			--@debug@
 			DebugLog("Reschedule partial update")
 			--@end-debug@
@@ -181,11 +273,17 @@ function MyPlugin:PartialUpdate(index)
 		return
 	end
 
-	local questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isWorldQuest = getQuestInfo(index)
+	local questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isWorldQuest, isLegendaryQuest, distance = getQuestInfo(index)
 	if not (questID == nil) then
 		if isCompleted and removeComplete then
 			untrackQuest(index, questID)
-		elseif ((questMapId == 0 and isOnMap) or (questMapId == self.areaID)) and not (isInstance and not self.inInstance and not isCompleted) then
+		elseif isCompleted and keepComplete then
+			trackQuest(index, questID, not isWorldQuest)
+		elseif self.hasFocus and distance > zenModeDistance then
+			untrackQuest(index, questID)
+		elseif isLegendaryQuest and removeLegendary and not isOnMap then
+			untrackQuest(index, questID)
+		elseif (isOnMap or (questMapId == self.areaID)) and not (isInstance and not self.inInstance and not isCompleted) then
 			trackQuest(index, questID, not isWorldQuest)
 		elseif showDailies and isDaily and not inInstance then
 			trackQuest(index, questID, not isWorldQuest)
@@ -204,7 +302,7 @@ end
 function MyPlugin:QUEST_WATCH_UPDATE(event, questIndex)
 	DebugLog("Update for quest:", questIndex)
 
-	local questID, _, _, isCompleted, _, _, _, isWorldQuest = getQuestInfo(questIndex)
+	local questID, _, _, isCompleted, _, _, _, isWorldQuest, _ = getQuestInfo(questIndex)
 	if questID ~= nil then
 		updateQuestIndex = nil
 		if removeComplete and isCompleted then
@@ -216,14 +314,14 @@ function MyPlugin:QUEST_WATCH_UPDATE(event, questIndex)
 end
 
 function MyPlugin:QUEST_LOG_UPDATE(event)
- 	DebugLog("Running update for quests")
+	DebugLog("Running update for quests")
 	-- run_update()
 end
 
 function MyPlugin:QUEST_ACCEPTED(event, questIndex)
 	DebugLog("Accepted new quest:", questIndex)
 
-	local questID, _, _, isCompleted, _, _, _, isWorldQuest = getQuestInfo(questIndex)
+	local questID, _, _, isCompleted, _, _, _, isWorldQuest, _ = getQuestInfo(questIndex)
 	if questID ~= nil then
 		updateQuestIndex = nil
 		if removeComplete and isCompleted then
@@ -257,26 +355,96 @@ function MyPlugin:BuildOptions()
 		name = "|cffFF6A00Smart Quest Tracker|r",
 		handler = MyPlugin,
 		args = {
+			zenMode = {
+				order = 2,
+				type = "group",
+				name = "Zen mode",
+				guiInline = true,
+				args = {
+					zenModeDesc = {
+						order = 1,
+						type = "description",
+						name = "Zen mode will only track those Quest, which are within the given distance, if at least one quest is within the given distance. This will be MUCH more demanding on the CPU, as a constant scanning is required. You can configure the rescan interval."
+					},
+					zenModeEnabled = {
+						order = 10,
+						type = "toggle",
+						name = "Enabled",
+						get = function(info)
+							return self.db.profile.ZenMode
+						end,
+						set = function(info, value)
+							self.db.profile.ZenMode = value
+							MyPlugin:Update() --We changed a setting, call our Update function
+						end,
+					},
+					zenModeDistance = {
+						order = 11,
+						type = "range",
+						name = "Distance to quest",
+						min = 1,
+						max = 10000000,
+						softMin = 10000,
+						softMax = 1000000,
+						step = 1,
+						bigStep = 10000,
+						get = function(info)
+							return self.db.profile.ZenModeDistance
+						end,
+						set = function(info, value)
+							self.db.profile.ZenModeDistance = value
+							MyPlugin:Update() --We changed a setting, call our Update function
+						end,
+					},
+					zenModeInterval = {
+						order = 11,
+						type = "range",
+						name = "Rescan interval (seconds)",
+						min = 1,
+						max = 10,
+						step = 1,
+						get = function(info)
+							return self.db.profile.ZenModeInterval
+						end,
+						set = function(info, value)
+							self.db.profile.ZenModeInterval = value
+							MyPlugin:Update() --We changed a setting, call our Update function
+						end,
+					},
+				}
+			},
 			clear = {
 				order = 1,
 				type = "group",
 				name = "Untrack quests when changing area",
 				guiInline = true,
 				args = {
-					removecomplete = {
-						order = 1,
+					removelegendary = {
+						order = 3,
 						type = "toggle",
-						name = "Completed quests",
+						name = "Keep story quests",
 						get = function(info)
-							return self.db.profile.RemoveComplete
+							return not self.db.profile.RemoveLegendary
 						end,
 						set = function(info, value)
-							self.db.profile.RemoveComplete = value
+							self.db.profile.RemoveLegendary = not value
+							MyPlugin:Update() --We changed a setting, call our Update function
+						end,
+					},
+					removewaypoints = {
+						order = 2,
+						type = "toggle",
+						name = "Quest waypoints",
+						get = function(info)
+							return self.db.profile.RemoveWaypoints
+						end,
+						set = function(info, value)
+							self.db.profile.RemoveWaypoints = value
 							MyPlugin:Update() --We changed a setting, call our Update function
 						end,
 					},
 					autoremove = {
-						order = 2,
+						order = 1,
 						type = "toggle",
 						name = "Quests from other areas",
 						get = function(info)
@@ -288,7 +456,7 @@ function MyPlugin:BuildOptions()
 						end,
 					},
 					showDailies = {
-						order = 3,
+						order = 5,
 						type = "toggle",
 						name = "Keep daily and weekly quest tracked",
 						get = function(info)
@@ -299,6 +467,24 @@ function MyPlugin:BuildOptions()
 							MyPlugin:Update()
 						end,
 					},
+					removecomplete = {
+						order = 10,
+						type = "select",
+						style = "radio",
+						name = "Completed quests",
+						values = {
+							keep = "Keep all",
+							keep_local = "Keep only local",
+							remove = "Remove all",
+						},
+						get = function(info)
+							return self.db.profile.HandlingComplete
+						end,
+						set = function(info, value)
+							self.db.profile.HandlingComplete = value
+							MyPlugin:Update() --We changed a setting, call our Update function
+						end,
+					}
 				},
 			},
 			sort = {
@@ -356,19 +542,22 @@ function MyPlugin:BuildOptions()
 		},
 	}
 
-	options.args.profile = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
-
 	return options
 end
 
 function MyPlugin:OnInitialize()
 	local defaults = {
-	  profile = {
-		AutoSort = true,
-		AutoRemove = true,
-		RemoveComplete = false,
-		ShowDailies = false
-	  }
+		profile = {
+			HandlingComplete = "keep_local",
+			RemoveLegendary = true,
+			RemoveWaypoints = false,
+			AutoSort = true,
+			AutoRemove = true,
+			ShowDailies = false,
+			ZenMode = false,
+			ZenModeDistance = 100000,
+			ZenModeInterval = 1,
+		}
 	}
 
 	self.db = LibStub("AceDB-3.0"):New("SmartQuestTrackerDB", defaults)
@@ -377,11 +566,11 @@ function MyPlugin:OnInitialize()
 	self.profilesFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("SmartQuestTracker");
 
 	--Register event triggers
-    MyPlugin:RegisterEvent("ZONE_CHANGED")
-    MyPlugin:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    MyPlugin:RegisterEvent("QUEST_WATCH_UPDATE")
-    MyPlugin:RegisterEvent("QUEST_LOG_UPDATE")
-    MyPlugin:RegisterEvent("QUEST_ACCEPTED")
+	MyPlugin:RegisterEvent("ZONE_CHANGED")
+	MyPlugin:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+	MyPlugin:RegisterEvent("QUEST_WATCH_UPDATE")
+	MyPlugin:RegisterEvent("QUEST_LOG_UPDATE")
+	MyPlugin:RegisterEvent("QUEST_ACCEPTED")
 	MyPlugin:RegisterEvent("QUEST_REMOVED")
 
 	MyPlugin:Update()
