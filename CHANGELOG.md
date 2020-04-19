@@ -1,4 +1,5 @@
 v3.1.7:
+
 -   Adds a rescan interval option for zen mode
 -   Fixes lua error when mapID is nil during map transitions
 -   Fixes quest log not usable when zen mode is active
@@ -11,9 +12,11 @@ v3.1.7:
 Note: The "Untrack Quest Waypoints" doesn't work for all quests. If the only visible objective of an qwuest is the use of the portal, then it will be kept tracked.
 
 v3.1.2:
+
 -   Update to Rise of Azshara
 
 v3.1.1:
+
 -   Update to Tides of Vengeance
 
 v3.1.0:
