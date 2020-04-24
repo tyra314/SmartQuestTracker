@@ -166,6 +166,11 @@ function hasFocusQuest(mapID)
 		return false
 	end
 	local quests = C_QuestLog.GetQuestsOnMap(mapID)
+
+	if quests == nil then
+		return false
+	end
+
 	for qid = 1, #quests do
 		local quest = quests[qid]
 		local index = GetQuestLogIndexByID(quest.questID);
