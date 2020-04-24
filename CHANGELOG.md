@@ -1,3 +1,7 @@
+v3.1.8:
+
+-   Fixes a lua error when quests is nil during map transitions
+
 v3.1.7:
 
 -   Adds a rescan interval option for zen mode
