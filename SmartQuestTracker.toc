@@ -1,6 +1,6 @@
-## Interface: 80300
+## Interface: 90001
 ## Author: tyra314
-## Version: @project-version@
+## Version: v4.0.0
 ## Title: Smart Quest Tracker
 ## SavedVariables: SmartQuestTrackerDB
 

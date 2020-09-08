@@ -1,3 +1,7 @@
+v4.0.0:
+
+- Update for Shadowlands PTR
+
 v3.1.8:
 
 -   Fixes a lua error when quests is nil during map transitions
