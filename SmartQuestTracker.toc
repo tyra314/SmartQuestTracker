@@ -1,6 +1,6 @@
 ## Interface: 90001
 ## Author: tyra314
-## Version: v4.0.0
+## Version: v4.0.1
 ## Title: Smart Quest Tracker
 ## SavedVariables: SmartQuestTrackerDB
 

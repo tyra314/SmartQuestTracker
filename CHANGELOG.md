@@ -1,3 +1,8 @@
+v4.0.1:
+
+- Fixes unexpected nil value errors
+- Minor refactoring
+
 v4.0.0:
 
 - Update for Shadowlands PTR
