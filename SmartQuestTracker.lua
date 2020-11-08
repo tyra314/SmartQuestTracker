@@ -52,13 +52,13 @@ local function getQuestInfo(index)
 	local QuestZoneID = C_TaskQuest.GetQuestZoneID(questID)
 	local nextWaypoint = C_QuestLog.GetNextWaypoint(questID)
 
+	if info.isHeader then
+		return nil
+	end
+
 	--@debug@
 	print("%%%%%%%%%" .. tostring(info.title) .. "%%%%%%%")
 	--@end-debug@
-
-	if isHeader then
-		return nil
-	end
 
 	local questMapId = C_TaskQuest.GetQuestZoneID(questID)
 	if questMapId == nil then
@@ -182,6 +182,10 @@ function hasFocusQuest(mapID)
 	for qid = 1, #quests do
 		local quest = quests[qid]
 		local distanceSq, _ = C_QuestLog.GetDistanceSqToQuest(quest.questID)
+
+		if distanceSq == nil then
+			return false
+		end
 
 		if distanceSq <= zenModeDistance then
 			return true
