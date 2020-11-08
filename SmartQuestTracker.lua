@@ -49,7 +49,6 @@ local function getQuestInfo(index)
 	local questID = info.questID
 
 	local isLegendaryQuest = C_QuestLog.IsLegendaryQuest(questID)
-	local QuestZoneID = C_TaskQuest.GetQuestZoneID(questID)
 	local nextWaypoint = C_QuestLog.GetNextWaypoint(questID)
 
 	if info.isHeader then
@@ -90,7 +89,7 @@ local function getQuestInfo(index)
 	return questID, questMapId, info["isOnMap"] or info["hasLocalPOI"], isCompleted, isDaily, isWeekly, isInstance, info["isTask"], isLegendaryQuest, distance
 end
 
-local function trackQuest(_, questID, markAutoTracked)
+local function trackQuest(questID, markAutoTracked)
 	if autoTracked[questID] ~= true and markAutoTracked then
 		autoTracked[questID] = true
 		C_QuestLog.AddQuestWatch(questID, 1)
@@ -150,7 +149,7 @@ local function debugPrintQuestsHelper(onlyWatched)
 
 	for questIndex = 1, numEntries do
 		local questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isWorldQuest, isLegendaryQuest, distance = getQuestInfo(questIndex)
-		if not (questID == nil) then
+		if questID ~= nil then
 			if (not onlyWatched) or (onlyWatched and autoTracked[questID] == true) then
 				local info = C_QuestLog.GetInfo(questIndex)
 				print("#" .. questID .. " - |cffFF6A00" .. info["title"] .. "|r")
@@ -169,6 +168,7 @@ local function debugPrintQuestsHelper(onlyWatched)
 		print("questID: " .. quest.questID)
 	end
 end
+
 function hasFocusQuest(mapID)
 	if not zenMode or mapID == nil then
 		return false
@@ -290,23 +290,23 @@ function MyPlugin:PartialUpdate(index)
 	end
 
 	local questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isWorldQuest, isLegendaryQuest, distance = getQuestInfo(index)
-	if not (questID == nil) then
+	if questID ~= nil then
 		if isCompleted and removeComplete then
-			untrackQuest(index, questID)
+			untrackQuest(questID)
 		elseif isCompleted and keepComplete then
-			trackQuest(index, questID, not isWorldQuest)
+			trackQuest(questID, not isWorldQuest)
 		elseif self.hasFocus and distance > zenModeDistance then
-			untrackQuest(index, questID)
+			untrackQuest(questID)
 		elseif isLegendaryQuest and removeLegendary and not isOnMap then
-			untrackQuest(index, questID)
+			untrackQuest(questID)
 		elseif (isOnMap or (questMapId == self.areaID)) and not (isInstance and not self.inInstance and not isCompleted) then
-			trackQuest(index, questID, not isWorldQuest)
+			trackQuest(questID, not isWorldQuest)
 		elseif showDailies and isDaily and not inInstance then
-			trackQuest(index, questID, not isWorldQuest)
+			trackQuest(questID, not isWorldQuest)
 		elseif showDailies and isWeekly then
-			trackQuest(index, questID, not isWorldQuest)
+			trackQuest(questID, not isWorldQuest)
 		else
-			untrackQuest(index, questID)
+			untrackQuest(questID)
 		end
 	end
 
@@ -322,9 +322,9 @@ function MyPlugin:QUEST_WATCH_UPDATE(event, questIndex)
 	if questID ~= nil then
 		updateQuestIndex = nil
 		if removeComplete and isCompleted then
-			untrackQuest(questIndex, questID)
+			untrackQuest(questID)
 		elseif not isWorldQuest then
-			trackQuest(questIndex, questID, not isWorldQuest)
+			trackQuest(questID, not isWorldQuest)
 		end
 	end
 end
@@ -336,9 +336,9 @@ function MyPlugin:QUEST_ACCEPTED(event, questIndex)
 	if questID ~= nil then
 		updateQuestIndex = nil
 		if removeComplete and isCompleted then
-			untrackQuest(questIndex, questID)
+			untrackQuest(questID)
 		elseif not isWorldQuest then
-			trackQuest(questIndex, questID, not isWorldQuest)
+			trackQuest(questID, not isWorldQuest)
 		end
 	end
 end
