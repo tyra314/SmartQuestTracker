@@ -100,7 +100,7 @@ local function trackQuest(questID, markAutoTracked)
 	end
 end
 
-local function untrackQuest(_, questID)
+local function untrackQuest(questID)
 	if autoTracked[questID] == true then
 		C_QuestLog.RemoveQuestWatch(questID)
 		autoTracked[questID] = nil
