@@ -1,3 +1,8 @@
+v4.0.2:
+
+- Fixes a dumb bug preventing the untracking of quests
+- Update to 9.0.2
+
 v4.0.1:
 
 - Fixes unexpected nil value errors
