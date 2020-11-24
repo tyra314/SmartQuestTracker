@@ -1,3 +1,7 @@
+v4.0.3:
+
+- Fixes a bug in handling of accepted, updated and removed quests
+
 v4.0.2:
 
 - Fixes a dumb bug preventing the untracking of quests
