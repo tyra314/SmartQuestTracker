@@ -35,9 +35,15 @@ local zenModeInterval
 
 -- control variables to pass arguments from on event handler to another
 local skippedUpdate = false
-local updateQuestIndex = nil
 local newQuestIndex = nil
 local doUpdate = false
+
+local function getQuestInfoById(questID)
+	local isCompleted = C_QuestLog.IsComplete(questID)
+	local isWorldQuest = C_QuestLog.IsWorldQuest(questID)
+
+	return isCompleted, isWorldQuest
+end
 
 local function getQuestInfo(index)
 	local info = C_QuestLog.GetInfo(index)
@@ -315,12 +321,12 @@ end
 
 -- event handlers
 
-function MyPlugin:QUEST_WATCH_UPDATE(event, questIndex)
-	DebugLog("Update for quest:", questIndex)
+function MyPlugin:QUEST_WATCH_UPDATE(event, questID)
+	DebugLog("Update for quest: ", questID)
 
-	local questID, _, _, isCompleted, _, _, _, isWorldQuest, _ = getQuestInfo(questIndex)
 	if questID ~= nil then
-		updateQuestIndex = nil
+		local isCompleted, isWorldQuest = getQuestInfoById(questID)
+
 		if removeComplete and isCompleted then
 			untrackQuest(questID)
 		elseif not isWorldQuest then
@@ -329,12 +335,12 @@ function MyPlugin:QUEST_WATCH_UPDATE(event, questIndex)
 	end
 end
 
-function MyPlugin:QUEST_ACCEPTED(event, questIndex)
-	DebugLog("Accepted new quest:", questIndex)
+function MyPlugin:QUEST_ACCEPTED(event, questID)
+	DebugLog("Accepted new quest: ", questID)
 
-	local questID, _, _, isCompleted, _, _, _, isWorldQuest, _ = getQuestInfo(questIndex)
 	if questID ~= nil then
-		updateQuestIndex = nil
+		local isCompleted, isWorldQuest = getQuestInfoById(questID)
+
 		if removeComplete and isCompleted then
 			untrackQuest(questID)
 		elseif not isWorldQuest then
@@ -343,9 +349,9 @@ function MyPlugin:QUEST_ACCEPTED(event, questIndex)
 	end
 end
 
-function MyPlugin:QUEST_REMOVED(event, questIndex)
-	DebugLog("REMOVED:", questIndex)
-	autoTracked[questIndex] = nil
+function MyPlugin:QUEST_REMOVED(event, questID)
+	DebugLog("Removed quest: ", questID)
+	autoTracked[questID] = nil
 	-- run_update()
 end
 
