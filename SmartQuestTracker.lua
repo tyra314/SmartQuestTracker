@@ -67,7 +67,7 @@ local function getQuestInfo(index)
 
 	local questMapId = C_TaskQuest.GetQuestZoneID(questID)
 	if questMapId == nil then
-		questMapId = GetQuestUiMapID(questID)
+		questMapId = 0
 	end
 	if nextWaypoint ~= nil and nextWaypoint ~= questMapId and removeWaypoints then
 		questMapId = 0
@@ -85,6 +85,8 @@ local function getQuestInfo(index)
 
 	local isCompleted = C_QuestLog.IsComplete(questID)
 
+	local isCampaignQuest = C_CampaignInfo.IsCampaignQuest(questID)
+
 	local isInstance = false
 	local tagInfo = C_QuestLog.GetQuestTagInfo(questID)
 	if tagInfo then
@@ -92,7 +94,7 @@ local function getQuestInfo(index)
 	    isInstance = tagId == QUEST_TAG_DUNGEON or tagId == QUEST_TAG_HEROIC or tagId == QUEST_TAG_RAID or tagId == QUEST_TAG_RAID10 or tagId == QUEST_TAG_RAID25
 	end
 
-	return questID, questMapId, info["isOnMap"] or info["hasLocalPOI"], isCompleted, isDaily, isWeekly, isInstance, info["isTask"], isLegendaryQuest, distance
+	return questID, questMapId, info["isOnMap"] or info["hasLocalPOI"], isCompleted, isDaily, isWeekly, isInstance, info["isTask"], isLegendaryQuest or info.isStory or isCampaignQuest, distance
 end
 
 local function trackQuest(questID, markAutoTracked)
@@ -193,7 +195,7 @@ function hasFocusQuest(mapID)
 			return false
 		end
 
-		if distanceSq <= zenModeDistance then
+		if distanceSq <= zenModeDistance * 1000 then
 			return true
 		end
 	end
@@ -210,6 +212,10 @@ function MyPlugin:Update()
 	showDailies = self.db.profile.ShowDailies
 	handlingComplete = self.db.profile.HandlingComplete
 	zenMode = self.db.profile.ZenMode
+	if self.db.profile.ZenModeDistance > 10000 then
+		-- change zenModDistance to new scaled value
+		self.db.profile.ZenModeInterval = self.db.profile.ZenModeInterval / 1000
+	end
 	zenModeDistance = self.db.profile.ZenModeDistance
 	zenModeInterval = self.db.profile.ZenModeInterval
 
@@ -301,11 +307,11 @@ function MyPlugin:PartialUpdate(index)
 			untrackQuest(questID)
 		elseif isCompleted and keepComplete then
 			trackQuest(questID, not isWorldQuest)
-		elseif self.hasFocus and distance > zenModeDistance then
+		elseif self.hasFocus and distance > zenModeDistance * 1000 and (not isLegendaryQuest or removeLegendary)then
 			untrackQuest(questID)
 		elseif isLegendaryQuest and removeLegendary and not isOnMap then
 			untrackQuest(questID)
-		elseif (isOnMap or (questMapId == self.areaID)) and not (isInstance and not self.inInstance and not isCompleted) then
+		elseif isOnMap and not (isInstance and not self.inInstance and not isCompleted) then
 			trackQuest(questID, not isWorldQuest)
 		elseif showDailies and isDaily and not inInstance then
 			trackQuest(questID, not isWorldQuest)
@@ -381,7 +387,7 @@ function MyPlugin:BuildOptions()
 					zenModeDesc = {
 						order = 1,
 						type = "description",
-						name = "Zen mode will only track those Quest, which are within the given distance, if at least one quest is within the given distance. This will be MUCH more demanding on the CPU, as a constant scanning is required. You can configure the rescan interval."
+						name = "Zen mode will only track those Quest, which are within the given distance, if at least one quest is within the given distance. The distance will be measured in the same unit as the quest tracker on the HUD. Using Zen mode will be MUCH more demanding on the CPU, as a constant scanning is required. You can configure the rescan interval."
 					},
 					zenModeEnabled = {
 						order = 10,
@@ -400,11 +406,11 @@ function MyPlugin:BuildOptions()
 						type = "range",
 						name = "Distance to quest",
 						min = 1,
-						max = 10000000,
-						softMin = 10000,
-						softMax = 1000000,
+						max = 10000,
+						softMin = 10,
+						softMax = 1000,
 						step = 1,
-						bigStep = 10000,
+						bigStep = 10,
 						get = function(info)
 							return self.db.profile.ZenModeDistance
 						end,
@@ -572,7 +578,7 @@ function MyPlugin:OnInitialize()
 			AutoRemove = true,
 			ShowDailies = false,
 			ZenMode = false,
-			ZenModeDistance = 100000,
+			ZenModeDistance = 100,
 			ZenModeInterval = 1,
 		}
 	}
