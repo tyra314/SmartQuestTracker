@@ -1,3 +1,14 @@
+v6.0.0:
+
+- Update interface compatibility for Forever Beta and Retail.
+- Add profile management in a dedicated options tab.
+- Apply profile changes, copies and resets immediately.
+- Limit automatically tracked quests to the configured Zen mode distance even when no quests are nearby.
+- Automatically supertrack the nearest eligible quest in Zen mode while preserving player-selected targets.
+- Fix processing of the last quest log entry and migration of old Zen distance settings.
+- Guard unavailable quest APIs and correct embedded library load order.
+- Route diagnostic output to the SQT chat window when available.
+
 v5.0.0:
 
 - Update to 10.0

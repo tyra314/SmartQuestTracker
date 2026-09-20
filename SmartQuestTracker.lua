@@ -8,20 +8,34 @@
 ]]
 
 
+local function ChatPrint(...)
+	local frame = DEFAULT_CHAT_FRAME
+	for _, frameName in ipairs(CHAT_FRAMES or {}) do
+		local candidate = _G[frameName]
+		if candidate and GetChatWindowInfo(candidate:GetID()) == "SQT" then
+			frame = candidate
+			break
+		end
+	end
+
+	local parts = {}
+	for i = 1, select("#", ...) do
+		parts[i] = tostring(select(i, ...))
+	end
+	frame:AddMessage(table.concat(parts, " "))
+end
+
 local function DebugLog(...)
 --@debug@
-printResult = "|cffFF6A00Smart Quest Tracker|r: "
-for i,v in ipairs({...}) do
-	printResult = printResult .. tostring(v) .. " "
-end
-DEFAULT_CHAT_FRAME:AddMessage(printResult)
+	ChatPrint("|cffFF6A00Smart Quest Tracker|r:", ...)
 --@end-debug@
 end
 
 MyPlugin = LibStub("AceAddon-3.0"):NewAddon("SmartQuestTracker", "AceConsole-3.0", "AceEvent-3.0", "AceTimer-3.0")
 
 local autoTracked = {}
-local autoRemove
+local superTrackedQuestID
+local autoSuperTrackedQuestID
 local autoSort
 local removeComplete
 local keepComplete
@@ -40,7 +54,7 @@ local doUpdate = false
 
 local function getQuestInfoById(questID)
 	local isCompleted = C_QuestLog.IsComplete(questID)
-	local isWorldQuest = C_QuestLog.IsWorldQuest(questID)
+	local isWorldQuest = C_QuestLog.IsWorldQuest and C_QuestLog.IsWorldQuest(questID) or false
 
 	return isCompleted, isWorldQuest
 end
@@ -48,24 +62,27 @@ end
 local function getQuestInfo(index)
 	local info = C_QuestLog.GetInfo(index)
 
-	if not info then
+	if not info or info.isHeader or not info.questID or info.questID == 0 then
 		return nil
 	end
 
 	local questID = info.questID
 
-	local isLegendaryQuest = C_QuestLog.IsLegendaryQuest(questID)
-	local nextWaypoint = C_QuestLog.GetNextWaypoint(questID)
-
-	if info.isHeader then
-		return nil
+	-- Some clients do not expose the retail-only quest classifications.
+	local isLegendaryQuest = C_QuestLog.IsLegendaryQuest and C_QuestLog.IsLegendaryQuest(questID) or false
+	local nextWaypoint
+	if C_QuestLog.GetNextWaypoint then
+		nextWaypoint = C_QuestLog.GetNextWaypoint(questID)
 	end
 
 	--@debug@
-	print("%%%%%%%%%" .. tostring(info.title) .. "%%%%%%%")
+	ChatPrint("%%%%%%%%%" .. tostring(info.title) .. "%%%%%%%")
 	--@end-debug@
 
-	local questMapId = C_TaskQuest.GetQuestZoneID(questID)
+	local questMapId
+	if C_TaskQuest and C_TaskQuest.GetQuestZoneID then
+		questMapId = C_TaskQuest.GetQuestZoneID(questID)
+	end
 	if questMapId == nil then
 		questMapId = 0
 	end
@@ -85,7 +102,7 @@ local function getQuestInfo(index)
 
 	local isCompleted = C_QuestLog.IsComplete(questID)
 
-	local isCampaignQuest = C_CampaignInfo.IsCampaignQuest(questID)
+	local isCampaignQuest = C_CampaignInfo and C_CampaignInfo.IsCampaignQuest and C_CampaignInfo.IsCampaignQuest(questID) or false
 
 	local isInstance = false
 	local tagInfo = C_QuestLog.GetQuestTagInfo(questID)
@@ -97,7 +114,22 @@ local function getQuestInfo(index)
 	return questID, questMapId, info["isOnMap"] or info["hasLocalPOI"], isCompleted, isDaily, isWeekly, isInstance, info["isTask"], isLegendaryQuest or info.isStory or isCampaignQuest, distance
 end
 
+local function getSuperTrackedQuestID()
+	if not C_SuperTrack or not C_SuperTrack.GetSuperTrackedQuestID then
+		return nil
+	end
+	local questID = C_SuperTrack.GetSuperTrackedQuestID()
+	if questID and questID > 0 then
+		return questID
+	end
+end
+
 local function trackQuest(questID, markAutoTracked)
+	if questID == getSuperTrackedQuestID() and questID ~= autoSuperTrackedQuestID then
+		autoTracked[questID] = nil
+		return
+	end
+
 	if autoTracked[questID] ~= true and markAutoTracked then
 		autoTracked[questID] = true
 		C_QuestLog.AddQuestWatch(questID, 1)
@@ -109,6 +141,11 @@ local function trackQuest(questID, markAutoTracked)
 end
 
 local function untrackQuest(questID)
+	if questID == getSuperTrackedQuestID() and questID ~= autoSuperTrackedQuestID then
+		autoTracked[questID] = nil
+		return
+	end
+
 	if autoTracked[questID] == true then
 		C_QuestLog.RemoveQuestWatch(questID)
 		autoTracked[questID] = nil
@@ -124,7 +161,7 @@ local function untrackAllQuests()
 
 	for index = 1, numEntries do
 		local info = C_QuestLog.GetInfo(index)
-		if ( not info["isHeader"]) then
+		if info and not info.isHeader and info.questID ~= getSuperTrackedQuestID() then
 			C_QuestLog.RemoveQuestWatch(info["questID"])
 		end
 	end
@@ -141,66 +178,82 @@ end
 
 local function debugPrintQuestsHelper(onlyWatched)
 	local areaid = C_Map.GetBestMapForUnit("player");
-	print("#########################")
-	print("Current MapID: " .. areaid)
+	ChatPrint("#########################")
+	ChatPrint("Current MapID: " .. tostring(areaid))
+	ChatPrint("ZenMode: " .. tostring(zenMode) .. " Completed setting: " .. tostring(handlingComplete))
+	ChatPrint("SuperTrack: " .. tostring(getSuperTrackedQuestID()) .. " AutoSuperTrack: " .. tostring(autoSuperTrackedQuestID))
 
 	local inInstance, instanceType = IsInInstance()
 
-	print("In instance: " .. tostring(inInstance))
-	print("Instance type: " .. instanceType)
+	ChatPrint("In instance: " .. tostring(inInstance))
+	ChatPrint("Instance type: " .. instanceType)
 
 	local numEntries, numQuests = C_QuestLog.GetNumQuestLogEntries()
-	print(numQuests .. " Quests in " .. numEntries .. " Entries.")
+	ChatPrint(numQuests .. " Quests in " .. numEntries .. " Entries.")
 	local numWatches = C_QuestLog.GetNumQuestWatches()
-	print(numWatches .. " Quests tracked.")
-	print("#########################")
+	ChatPrint(numWatches .. " Quests tracked.")
+	ChatPrint("#########################")
 
 	for questIndex = 1, numEntries do
 		local questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isWorldQuest, isLegendaryQuest, distance = getQuestInfo(questIndex)
 		if questID ~= nil then
 			if (not onlyWatched) or (onlyWatched and autoTracked[questID] == true) then
 				local info = C_QuestLog.GetInfo(questIndex)
-				print("#" .. questID .. " - |cffFF6A00" .. info["title"] .. "|r")
-                print("MapID: " .. tostring(questMapId) .. " IsOnMap: " .. tostring(isOnMap) .. " isInstance: " .. tostring(isInstance) .. " distance: " .. tostring(distance))
-				print("AutoTracked: " .. tostring(autoTracked[questID] == true) .. " isLocal: " .. tostring(((questMapId == 0 and isOnMap) or (questMapId == areaid)) and not (isInstance and not inInstance and not isCompleted)))
-				print("Completed: ".. tostring(isCompleted) .. " Daily: " .. tostring(isDaily) .. " Weekly: " .. tostring(isWeekly) .. " WorldQuest: " .. tostring(isWorldQuest) .. " LegendaryQuest: " .. tostring(isLegendaryQuest))
+				local rawDistance, onContinent = C_QuestLog.GetDistanceSqToQuest(questID)
+				ChatPrint("#" .. questID .. " - |cffFF6A00" .. info["title"] .. "|r")
+				ChatPrint("Raw distance squared: " .. tostring(rawDistance) .. " OnContinent: " .. tostring(onContinent))
+                ChatPrint("MapID: " .. tostring(questMapId) .. " IsOnMap: " .. tostring(isOnMap) .. " isInstance: " .. tostring(isInstance) .. " distance: " .. tostring(distance))
+				ChatPrint("AutoTracked: " .. tostring(autoTracked[questID] == true) .. " isLocal: " .. tostring(((questMapId == 0 and isOnMap) or (questMapId == areaid)) and not (isInstance and not inInstance and not isCompleted)))
+				ChatPrint("Completed: ".. tostring(isCompleted) .. " Daily: " .. tostring(isDaily) .. " Weekly: " .. tostring(isWeekly) .. " WorldQuest: " .. tostring(isWorldQuest) .. " LegendaryQuest: " .. tostring(isLegendaryQuest))
 			end
 		end
 	end
 
-	print("C_QuestLog.GetQuestsOnMap(areaid): ")
+	ChatPrint("C_QuestLog.GetQuestsOnMap(areaid): ")
 
-	local quests = C_QuestLog.GetQuestsOnMap(areaid)
+	local quests = areaid and C_QuestLog.GetQuestsOnMap(areaid) or {}
+	quests = quests or {}
 	for qid = 1, #quests do
 		local quest = quests[qid]
-		print("questID: " .. quest.questID)
+		ChatPrint("questID: " .. quest.questID)
 	end
 end
 
-function hasFocusQuest(mapID)
-	if not zenMode or mapID == nil then
-		return false
-	end
-	local quests = C_QuestLog.GetQuestsOnMap(mapID)
-
-	if quests == nil then
-		return false
+function MyPlugin:UpdateZenSuperTracking()
+	if not C_SuperTrack or not C_SuperTrack.SetSuperTrackedQuestID then
+		return
 	end
 
-	for qid = 1, #quests do
-		local quest = quests[qid]
-		local distanceSq, _ = C_QuestLog.GetDistanceSqToQuest(quest.questID)
+	local currentQuestID = getSuperTrackedQuestID()
+	-- A target selected outside this addon belongs to the player.
+	if currentQuestID and currentQuestID ~= autoSuperTrackedQuestID then
+		return
+	end
+	if not currentQuestID and C_SuperTrack.IsSuperTrackingAnything and C_SuperTrack.IsSuperTrackingAnything() then
+		return
+	end
 
-		if distanceSq == nil then
-			return false
+	local nearestQuestID, nearestDistance
+	if zenMode then
+		local numEntries = C_QuestLog.GetNumQuestLogEntries()
+		for index = 1, numEntries do
+			local info = C_QuestLog.GetInfo(index)
+			if info and not info.isHeader and autoTracked[info.questID] then
+				local distance, onContinent = C_QuestLog.GetDistanceSqToQuest(info.questID)
+				if distance and onContinent ~= false and (not nearestDistance or distance < nearestDistance
+					or (distance == nearestDistance and info.questID == currentQuestID)) then
+					nearestQuestID, nearestDistance = info.questID, distance
+				end
+			end
 		end
-
-		if distanceSq <= zenModeDistance * 1000 then
-			return true
-		end
 	end
 
-	return false
+	if nearestQuestID ~= currentQuestID then
+		-- Set ownership before the API call, which can fire the change event.
+		autoSuperTrackedQuestID = nearestQuestID
+		C_SuperTrack.SetSuperTrackedQuestID(nearestQuestID or 0)
+		self:SUPER_TRACKING_CHANGED()
+	end
 end
 
 --Function we can call when a setting changes.
@@ -214,10 +267,13 @@ function MyPlugin:Update()
 	zenMode = self.db.profile.ZenMode
 	if self.db.profile.ZenModeDistance > 10000 then
 		-- change zenModDistance to new scaled value
-		self.db.profile.ZenModeInterval = self.db.profile.ZenModeInterval / 1000
+		self.db.profile.ZenModeDistance = self.db.profile.ZenModeDistance / 1000
 	end
 	zenModeDistance = self.db.profile.ZenModeDistance
 	zenModeInterval = self.db.profile.ZenModeInterval
+	if not zenMode then
+		self:UpdateZenSuperTracking()
+	end
 
 	if handlingComplete == "keep" then
 		keepComplete = true
@@ -246,7 +302,6 @@ function MyPlugin:RunUpdate()
 		-- Update play information cache, so we don't run it for every quest
 		self.areaID = C_Map.GetBestMapForUnit("player")
 		self.inInstance = select(1, IsInInstance())
-		self.hasFocus = hasFocusQuest(self.areaID)
 
 		--@debug@
 		DebugLog("MyPlugin:RunUpdate")
@@ -276,16 +331,16 @@ end
 function MyPlugin:PartialUpdate(index)
 	local numEntries, _ = C_QuestLog.GetNumQuestLogEntries()
 
-	if index >= numEntries then
+	if index > numEntries then
 		--@debug@
 		DebugLog("Finished partial updates")
 		--@end-debug@
 
+		self:UpdateZenSuperTracking()
 		if self.update_required == true then
 			self.update_required = nil
 			self.areaID = C_Map.GetBestMapForUnit("player")
 			self.inInstance = select(1, IsInInstance())
-			self.hasFocus = hasFocusQuest(self.areaID)
 
 			--@debug@
 			DebugLog("Reschedule partial update")
@@ -303,12 +358,12 @@ function MyPlugin:PartialUpdate(index)
 
 	local questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isWorldQuest, isLegendaryQuest, distance = getQuestInfo(index)
 	if questID ~= nil then
-		if isCompleted and removeComplete then
+		if zenMode and distance > zenModeDistance * 1000 then
+			untrackQuest(questID)
+		elseif isCompleted and removeComplete then
 			untrackQuest(questID)
 		elseif isCompleted and keepComplete then
 			trackQuest(questID, not isWorldQuest)
-		elseif self.hasFocus and distance > zenModeDistance * 1000 and (not isLegendaryQuest or removeLegendary)then
-			untrackQuest(questID)
 		elseif isLegendaryQuest and removeLegendary and not isOnMap then
 			untrackQuest(questID)
 		elseif isOnMap and not (isInstance and not self.inInstance and not isCompleted) then
@@ -326,6 +381,24 @@ function MyPlugin:PartialUpdate(index)
 end
 
 -- event handlers
+
+function MyPlugin:SUPER_TRACKING_CHANGED()
+	local questID = getSuperTrackedQuestID()
+	local previousQuestID = superTrackedQuestID
+	superTrackedQuestID = questID
+	if questID ~= autoSuperTrackedQuestID then
+		autoSuperTrackedQuestID = nil
+	end
+
+	if questID and questID ~= autoSuperTrackedQuestID then
+		autoTracked[questID] = nil
+	end
+	if previousQuestID and previousQuestID ~= questID then
+		-- The previous target is managed by the normal tracking rules again.
+		autoTracked[previousQuestID] = true
+		run_update()
+	end
+end
 
 function MyPlugin:QUEST_WATCH_UPDATE(event, questID)
 	DebugLog("Update for quest: ", questID)
@@ -387,7 +460,7 @@ function MyPlugin:BuildOptions()
 					zenModeDesc = {
 						order = 1,
 						type = "description",
-						name = "Zen mode will only track those Quest, which are within the given distance, if at least one quest is within the given distance. The distance will be measured in the same unit as the quest tracker on the HUD. Using Zen mode will be MUCH more demanding on the CPU, as a constant scanning is required. You can configure the rescan interval."
+						name = "Zen mode only automatically tracks quests within the configured distance, including story quests and completed quests. Automatically tracked quests without a known distance are hidden. If no quests are nearby, no automatically tracked quests remain. Manually tracked quests are preserved. The distance will be measured in the same unit as the quest tracker on the HUD. Using Zen mode will be MUCH more demanding on the CPU, as a constant scanning is required. You can configure the rescan interval."
 					},
 					zenModeEnabled = {
 						order = 10,
@@ -520,6 +593,7 @@ function MyPlugin:BuildOptions()
 						order = 1,
 						type = "toggle",
 						name = "Automatically sort quests",
+						desc = "Sort tracked quests by distance, including while Zen mode is active.",
 						get = function(info)
 							return self.db.profile.AutoSort
 						end,
@@ -565,6 +639,18 @@ function MyPlugin:BuildOptions()
 		},
 	}
 
+	options.childGroups = "tab"
+	options.args = {
+		general = {
+			order = 1,
+			type = "group",
+			name = "General",
+			args = options.args,
+		},
+		profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db),
+	}
+	options.args.profiles.order = 100
+
 	return options
 end
 
@@ -584,9 +670,12 @@ function MyPlugin:OnInitialize()
 	}
 
 	self.db = LibStub("AceDB-3.0"):New("SmartQuestTrackerDB", defaults)
+	self.db.RegisterCallback(self, "OnProfileChanged", "Update")
+	self.db.RegisterCallback(self, "OnProfileCopied", "Update")
+	self.db.RegisterCallback(self, "OnProfileReset", "Update")
 	LibStub("AceConfig-3.0"):RegisterOptionsTable("SmartQuestTracker", MyPlugin:BuildOptions(), {"sqt", "SmartQuestTracker"})
 
-	self.profilesFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("SmartQuestTracker");
+	self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("SmartQuestTracker");
 
 	--Register event triggers
 	MyPlugin:RegisterEvent("ZONE_CHANGED")
@@ -594,6 +683,11 @@ function MyPlugin:OnInitialize()
 	MyPlugin:RegisterEvent("QUEST_WATCH_UPDATE")
 	MyPlugin:RegisterEvent("QUEST_ACCEPTED")
 	MyPlugin:RegisterEvent("QUEST_REMOVED")
+	if C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID then
+		MyPlugin:RegisterEvent("SUPER_TRACKING_CHANGED")
+		MyPlugin:RegisterEvent("PLAYER_ENTERING_WORLD", "SUPER_TRACKING_CHANGED")
+		superTrackedQuestID = getSuperTrackedQuestID()
+	end
 
 	MyPlugin:Update()
 end
