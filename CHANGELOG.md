@@ -1,3 +1,13 @@
+v6.1.0:
+
+- In Zen mode, track the nearest eligible quest in the current area when none are within the configured distance.
+- Exclude dungeon and raid quests from this fallback selection and support modern quest tag enums.
+- Clear automatically managed supertracking before removing a quest watch.
+- Make the explicit Untrack all quests action clear manually selected supertracking too.
+- Recognize supertracking automatically assigned when accepting the first tracked quest, including outside Zen mode.
+- Preserve automatic target ownership across settings refreshes and update tracking after quest acceptance.
+- Send diagnostic output to the default chat frame again.
+
 v6.0.0:
 
 - Update interface compatibility for Forever Beta and Retail.

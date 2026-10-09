@@ -9,20 +9,11 @@
 
 
 local function ChatPrint(...)
-	local frame = DEFAULT_CHAT_FRAME
-	for _, frameName in ipairs(CHAT_FRAMES or {}) do
-		local candidate = _G[frameName]
-		if candidate and GetChatWindowInfo(candidate:GetID()) == "SQT" then
-			frame = candidate
-			break
-		end
-	end
-
 	local parts = {}
 	for i = 1, select("#", ...) do
 		parts[i] = tostring(select(i, ...))
 	end
-	frame:AddMessage(table.concat(parts, " "))
+	DEFAULT_CHAT_FRAME:AddMessage(table.concat(parts, " "))
 end
 
 local function DebugLog(...)
@@ -36,6 +27,8 @@ MyPlugin = LibStub("AceAddon-3.0"):NewAddon("SmartQuestTracker", "AceConsole-3.0
 local autoTracked = {}
 local superTrackedQuestID
 local autoSuperTrackedQuestID
+local acceptedQuestSuperTracking
+local newSuperTracking
 local autoSort
 local removeComplete
 local keepComplete
@@ -106,9 +99,14 @@ local function getQuestInfo(index)
 
 	local isInstance = false
 	local tagInfo = C_QuestLog.GetQuestTagInfo(questID)
-	if tagInfo then
+	if tagInfo and tagInfo.tagID then
 		local tagId = tagInfo.tagID
-	    isInstance = tagId == QUEST_TAG_DUNGEON or tagId == QUEST_TAG_HEROIC or tagId == QUEST_TAG_RAID or tagId == QUEST_TAG_RAID10 or tagId == QUEST_TAG_RAID25
+		local tags = Enum and Enum.QuestTag or {}
+		isInstance = tagId == (tags.Dungeon or QUEST_TAG_DUNGEON)
+			or tagId == (tags.Heroic or QUEST_TAG_HEROIC)
+			or tagId == (tags.Raid or QUEST_TAG_RAID)
+			or tagId == (tags.Raid10 or QUEST_TAG_RAID10)
+			or tagId == (tags.Raid25 or QUEST_TAG_RAID25)
 	end
 
 	return questID, questMapId, info["isOnMap"] or info["hasLocalPOI"], isCompleted, isDaily, isWeekly, isInstance, info["isTask"], isLegendaryQuest or info.isStory or isCampaignQuest, distance
@@ -147,6 +145,13 @@ local function untrackQuest(questID)
 	end
 
 	if autoTracked[questID] == true then
+		if questID == autoSuperTrackedQuestID and questID == getSuperTrackedQuestID()
+			and C_SuperTrack.SetSuperTrackedQuestID then
+			-- Clear ownership first: the change event must not requeue this quest.
+			autoSuperTrackedQuestID = nil
+			superTrackedQuestID = nil
+			C_SuperTrack.SetSuperTrackedQuestID(0)
+		end
 		C_QuestLog.RemoveQuestWatch(questID)
 		autoTracked[questID] = nil
 	end
@@ -156,17 +161,29 @@ local function untrackQuest(questID)
 	end
 end
 
-local function untrackAllQuests()
+local function untrackAllQuests(clearSuperTracking)
+	if clearSuperTracking then
+		-- The explicit options action also clears player-selected quest targets.
+		autoSuperTrackedQuestID = nil
+		superTrackedQuestID = nil
+		if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
+			C_SuperTrack.SetSuperTrackedQuestID(0)
+		end
+	end
 	local numEntries, _ = C_QuestLog.GetNumQuestLogEntries()
 
 	for index = 1, numEntries do
 		local info = C_QuestLog.GetInfo(index)
-		if info and not info.isHeader and info.questID ~= getSuperTrackedQuestID() then
+		if info and not info.isHeader and (clearSuperTracking or info.questID ~= getSuperTrackedQuestID()) then
 			C_QuestLog.RemoveQuestWatch(info["questID"])
 		end
 	end
 
 	autoTracked = {}
+	-- The settings refresh keeps the current target; retain its ownership too.
+	if autoSuperTrackedQuestID and autoSuperTrackedQuestID == getSuperTrackedQuestID() then
+		autoTracked[autoSuperTrackedQuestID] = true
+	end
 end
 
 local function run_update()
@@ -220,6 +237,9 @@ local function debugPrintQuestsHelper(onlyWatched)
 end
 
 function MyPlugin:UpdateZenSuperTracking()
+	if not zenMode then
+		return
+	end
 	if not C_SuperTrack or not C_SuperTrack.SetSuperTrackedQuestID then
 		return
 	end
@@ -271,9 +291,6 @@ function MyPlugin:Update()
 	end
 	zenModeDistance = self.db.profile.ZenModeDistance
 	zenModeInterval = self.db.profile.ZenModeInterval
-	if not zenMode then
-		self:UpdateZenSuperTracking()
-	end
 
 	if handlingComplete == "keep" then
 		keepComplete = true
@@ -295,6 +312,35 @@ function MyPlugin:Update()
 	end
 end
 
+function MyPlugin:UpdateZenFallbackQuest()
+	self.zenFallbackQuestID = nil
+	if not zenMode then
+		return
+	end
+
+	local nearestQuestID, nearestDistance
+	for index = 1, C_QuestLog.GetNumQuestLogEntries() do
+		local questID, _, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isWorldQuest, isLegendaryQuest = getQuestInfo(index)
+		if questID and not isWorldQuest and not (isCompleted and removeComplete) then
+			local localQuest = isOnMap and not (isInstance and not self.inInstance and not isCompleted)
+			local eligible = (isCompleted and keepComplete)
+				or (not (isLegendaryQuest and removeLegendary and not isOnMap)
+					and (localQuest or (showDailies and (isDaily or isWeekly))))
+			local distance, onContinent = C_QuestLog.GetDistanceSqToQuest(questID)
+			if eligible and distance and onContinent ~= false then
+				if distance <= zenModeDistance * 1000 then
+					return
+				end
+				if localQuest and not isInstance and (not nearestDistance or distance < nearestDistance
+					or (distance == nearestDistance and questID < nearestQuestID)) then
+					nearestQuestID, nearestDistance = questID, distance
+				end
+			end
+		end
+	end
+	self.zenFallbackQuestID = nearestQuestID
+end
+
 function MyPlugin:RunUpdate()
 	if self.update_running ~= true then
 		self.update_running = true
@@ -302,6 +348,7 @@ function MyPlugin:RunUpdate()
 		-- Update play information cache, so we don't run it for every quest
 		self.areaID = C_Map.GetBestMapForUnit("player")
 		self.inInstance = select(1, IsInInstance())
+		self:UpdateZenFallbackQuest()
 
 		--@debug@
 		DebugLog("MyPlugin:RunUpdate")
@@ -341,6 +388,7 @@ function MyPlugin:PartialUpdate(index)
 			self.update_required = nil
 			self.areaID = C_Map.GetBestMapForUnit("player")
 			self.inInstance = select(1, IsInInstance())
+			self:UpdateZenFallbackQuest()
 
 			--@debug@
 			DebugLog("Reschedule partial update")
@@ -358,7 +406,7 @@ function MyPlugin:PartialUpdate(index)
 
 	local questID, questMapId, isOnMap, isCompleted, isDaily, isWeekly, isInstance, isWorldQuest, isLegendaryQuest, distance = getQuestInfo(index)
 	if questID ~= nil then
-		if zenMode and distance > zenModeDistance * 1000 then
+		if zenMode and distance > zenModeDistance * 1000 and questID ~= self.zenFallbackQuestID then
 			untrackQuest(questID)
 		elseif isCompleted and removeComplete then
 			untrackQuest(questID)
@@ -382,9 +430,51 @@ end
 
 -- event handlers
 
+-- Acceptance and supertracking events can arrive in either order in one frame.
+function MyPlugin:RememberAcceptedQuestSuperTracking(questID)
+	local currentQuestID = getSuperTrackedQuestID()
+	if C_QuestLog.GetNumQuestWatches() > 1 then
+		return
+	end
+	if currentQuestID == questID and (not superTrackedQuestID
+		or (newSuperTracking and newSuperTracking.questID == questID)) then
+		autoSuperTrackedQuestID = questID
+		autoTracked[questID] = true
+		newSuperTracking = nil
+	elseif not currentQuestID then
+		local pending = {questID = questID}
+		acceptedQuestSuperTracking = pending
+		self:ScheduleTimer(function()
+			if acceptedQuestSuperTracking == pending then
+				acceptedQuestSuperTracking = nil
+			end
+		end, 0)
+	end
+end
+
 function MyPlugin:SUPER_TRACKING_CHANGED()
 	local questID = getSuperTrackedQuestID()
 	local previousQuestID = superTrackedQuestID
+	local acceptedAutomaticTarget = false
+	if questID and not previousQuestID and questID ~= autoSuperTrackedQuestID then
+		if acceptedQuestSuperTracking and acceptedQuestSuperTracking.questID == questID then
+			autoSuperTrackedQuestID = questID
+			autoTracked[questID] = true
+			acceptedQuestSuperTracking = nil
+			acceptedAutomaticTarget = true
+		elseif C_QuestLog.GetNumQuestWatches() <= 1 then
+			local pending = {questID = questID}
+			newSuperTracking = pending
+			self:ScheduleTimer(function()
+				if newSuperTracking == pending then
+					newSuperTracking = nil
+				end
+			end, 0)
+		end
+	elseif previousQuestID ~= questID then
+		acceptedQuestSuperTracking = nil
+		newSuperTracking = nil
+	end
 	superTrackedQuestID = questID
 	if questID ~= autoSuperTrackedQuestID then
 		autoSuperTrackedQuestID = nil
@@ -396,6 +486,8 @@ function MyPlugin:SUPER_TRACKING_CHANGED()
 	if previousQuestID and previousQuestID ~= questID then
 		-- The previous target is managed by the normal tracking rules again.
 		autoTracked[previousQuestID] = true
+		run_update()
+	elseif acceptedAutomaticTarget then
 		run_update()
 	end
 end
@@ -418,6 +510,7 @@ function MyPlugin:QUEST_ACCEPTED(event, questID)
 	DebugLog("Accepted new quest: ", questID)
 
 	if questID ~= nil then
+		self:RememberAcceptedQuestSuperTracking(questID)
 		local isCompleted, isWorldQuest = getQuestInfoById(questID)
 
 		if removeComplete and isCompleted then
@@ -425,6 +518,7 @@ function MyPlugin:QUEST_ACCEPTED(event, questID)
 		elseif not isWorldQuest then
 			trackQuest(questID, not isWorldQuest)
 		end
+		run_update()
 	end
 end
 
@@ -460,7 +554,7 @@ function MyPlugin:BuildOptions()
 					zenModeDesc = {
 						order = 1,
 						type = "description",
-						name = "Zen mode only automatically tracks quests within the configured distance, including story quests and completed quests. Automatically tracked quests without a known distance are hidden. If no quests are nearby, no automatically tracked quests remain. Manually tracked quests are preserved. The distance will be measured in the same unit as the quest tracker on the HUD. Using Zen mode will be MUCH more demanding on the CPU, as a constant scanning is required. You can configure the rescan interval."
+						name = "Zen mode only automatically tracks quests within the configured distance, including story quests and completed quests. Automatically tracked quests without a known distance are hidden. If no eligible quests are nearby, the nearest eligible non-dungeon, non-raid quest in the current area is tracked instead, if one exists. Manually tracked quests are preserved. The distance will be measured in the same unit as the quest tracker on the HUD. Using Zen mode will be MUCH more demanding on the CPU, as a constant scanning is required. You can configure the rescan interval."
 					},
 					zenModeEnabled = {
 						order = 10,
@@ -626,7 +720,7 @@ function MyPlugin:BuildOptions()
 						type = 'execute',
 						order = 1,
 						name = 'Untrack all quests',
-						func = function() untrackAllQuests() end,
+						func = function() untrackAllQuests(true) end,
 					},
 					update = {
 						type = 'execute',
